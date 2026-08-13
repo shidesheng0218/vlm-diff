@@ -35,8 +35,8 @@ Hi HN! I built a hybrid approach for UI visual regression testing that combines 
 
 The code is MIT licensed and includes the full evaluation pipeline. Would love feedback from anyone doing visual regression testing at scale!
 
-GitHub: [will add when pushed]
-Paper: [will add arXiv link when uploaded]
+GitHub: https://github.com/shidesheng0218/vlm-diff
+Paper: [arXiv link pending upload]
 
 ---
 
@@ -50,4 +50,4 @@ Built VLM-Diff: hybrid DOM+VLM pipeline for UI visual regression testing
 
 First UI benchmark with DOM ground truth. MIT licensed.
 
-Paper + code: [links]
+Paper + code: https://github.com/shidesheng0218/vlm-diff

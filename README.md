@@ -291,7 +291,7 @@ If you use this work, please cite:
   author={[Your Name]},
   year={2026},
   month={August},
-  url={https://github.com/[your-repo]},
+  url={https://github.com/shidesheng0218/vlm-diff},
   note={Research prototype demonstrating DOM-diff + VLM classification for UI regression detection}
 }
 ```

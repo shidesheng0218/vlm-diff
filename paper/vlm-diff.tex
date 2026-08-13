@@ -20,7 +20,7 @@ Institution \\
 \maketitle
 
 \begin{abstract}
-Frontier vision-language models (VLMs) struggle with fine-grained visual differences, achieving only 62-78\% accuracy on subtle UI changes vs 95\% human baseline. We propose a hybrid approach that leverages the UI domain's unique advantage: DOM structure as ground truth for no-change suppression. Our pipeline uses deterministic DOM+pixel diffing to localize changed regions, then crops and sends only those regions to a VLM for classification. On 39 UI screenshot pairs spanning 7 mutation categories, the deterministic detection layer achieves 92\% recall with 0\% false-positive rate on no-change pairs. Predicted VLM classification accuracy is 75-82\%, a 15-27pp improvement over naive full-image-to-VLM baselines, while reducing token cost by 68\%. Code and dataset: \url{https://github.com/[your-repo]}
+Frontier vision-language models (VLMs) struggle with fine-grained visual differences, achieving only 62-78\% accuracy on subtle UI changes vs 95\% human baseline. We propose a hybrid approach that leverages the UI domain's unique advantage: DOM structure as ground truth for no-change suppression. Our pipeline uses deterministic DOM+pixel diffing to localize changed regions, then crops and sends only those regions to a VLM for classification. On 39 UI screenshot pairs spanning 7 mutation categories, the deterministic detection layer achieves 92\% recall with 0\% false-positive rate on no-change pairs. Predicted VLM classification accuracy is 75-82\%, a 15-27pp improvement over naive full-image-to-VLM baselines, while reducing token cost by 68\%. Code and dataset: \url{https://github.com/shidesheng0218/vlm-diff}
 \end{abstract}
 
 \section{Introduction}
