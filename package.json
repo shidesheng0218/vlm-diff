@@ -9,7 +9,10 @@
     "test": "tsc && node --test dist/**/*.test.js",
     "postbuild": "cp -r src/dataset/fixtures dist/dataset/fixtures",
     "dataset:gen": "npm run build && node dist/dataset/generate.js",
-    "eval:run": "npm run build && node dist/eval/run.js"
+    "eval:run": "npm run build && node dist/eval/run.js",
+    "demo:quick": "tsx scripts/demo-quick.ts",
+    "demo:generate": "tsx scripts/demo-generate.ts",
+    "demo:detect": "tsx scripts/demo-detect.ts"
   },
   "engines": {
     "node": ">=20"
@@ -17,13 +20,14 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.68.0",
     "openai": "^4.77.0",
-    "playwright": "^1.62.1",
     "pixelmatch": "^7.1.0",
+    "playwright": "^1.62.1",
     "pngjs": "^7.0.0"
   },
   "devDependencies": {
-    "typescript": "^5.7.3",
     "@types/node": "^22.10.5",
-    "@types/pngjs": "^6.0.5"
+    "@types/pngjs": "^6.0.5",
+    "tsx": "^4.23.12",
+    "typescript": "^5.7.3"
   }
 }

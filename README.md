@@ -132,6 +132,26 @@ If real numbers significantly deviate from predictions, that deviation itself is
 
 ## Usage
 
+### Quick Start (2 minutes, no dependencies)
+
+```bash
+git clone https://github.com/shidesheng0218/vlm-diff.git
+cd vlm-diff
+npm install
+npm run demo:quick
+```
+
+This runs a simulated demo showing how DOM diff detects changes and suppresses false positives. No screenshots or API keys needed.
+
+### Full Demo (requires Playwright)
+
+```bash
+npm run demo:generate  # Generate test screenshots
+npm run demo:detect    # Run Stage 1 detection (no VLM)
+```
+
+### Complete Pipeline
+
 ### 1. Install dependencies
 ```bash
 npm install
