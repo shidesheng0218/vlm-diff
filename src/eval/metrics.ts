@@ -1,0 +1,99 @@
+import type { BaselineResult } from "./baselines.js";
+import type { PairRecord } from "./types.js";
+
+export interface Rect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+function iou(a: Rect, b: Rect): number {
+  const ix = Math.max(a.x, b.x);
+  const iy = Math.max(a.y, b.y);
+  const iw = Math.min(a.x + a.w, b.x + b.w) - ix;
+  const ih = Math.min(a.y + a.h, b.y + b.h) - iy;
+  if (iw <= 0 || ih <= 0) return 0;
+  const intersection = iw * ih;
+  const union = a.w * a.h + b.w * b.h - intersection;
+  return union > 0 ? intersection / union : 0;
+}
+
+const IOU_HIT_THRESHOLD = 0.3;
+
+export interface MetricsSummary {
+  baseline: string;
+  n: number;
+  /** ground-truth-changed pairs correctly flagged as changed */
+  recall: number;
+  /** predicted-changed pairs whose region overlaps ground truth (IoU > 0.3) */
+  precision: number;
+  /** ground-truth "none" pairs incorrectly flagged as changed */
+  falsePositiveRateOnNoChange: number;
+  /** among correctly-detected changed pairs, fraction with correct changeType */
+  changeTypeAccuracy: number;
+  avgInputTokens: number;
+  avgOutputTokens: number;
+}
+
+export function summarize(pairs: PairRecord[], results: BaselineResult[]): MetricsSummary {
+  const byId = new Map(pairs.map((p) => [p.id, p]));
+  const baseline = results[0]?.baseline ?? "unknown";
+
+  let truePositives = 0; // ground truth changed, predicted changed
+  let falseNegatives = 0; // ground truth changed, predicted unchanged
+  let noChangePairs = 0;
+  let noChangeFalsePositives = 0;
+  let precisionHits = 0;
+  let precisionAttempts = 0; // predicted-changed pairs where ground truth also changed (denominator for region precision)
+  let typeCorrect = 0;
+  let typeAttempts = 0;
+  let inputTokenSum = 0;
+  let outputTokenSum = 0;
+
+  for (const r of results) {
+    const pair = byId.get(r.pairId);
+    if (!pair) continue;
+    const groundTruthChanged = pair.kind !== "none";
+    inputTokenSum += r.inputTokens;
+    outputTokenSum += r.outputTokens;
+
+    if (!groundTruthChanged) {
+      noChangePairs++;
+      if (r.predictedChanged) noChangeFalsePositives++;
+      continue;
+    }
+
+    if (r.predictedChanged) {
+      truePositives++;
+      precisionAttempts++;
+      const gtRect = groundTruthRect(pair);
+      if (gtRect && r.predictedRegions.some((pr) => iou(pr, gtRect) >= IOU_HIT_THRESHOLD)) {
+        precisionHits++;
+      }
+      if (r.predictedChangeType) {
+        typeAttempts++;
+        if (r.predictedChangeType === pair.kind) typeCorrect++;
+      }
+    } else {
+      falseNegatives++;
+    }
+  }
+
+  const changedTotal = truePositives + falseNegatives;
+
+  return {
+    baseline,
+    n: results.length,
+    recall: changedTotal > 0 ? truePositives / changedTotal : 0,
+    precision: precisionAttempts > 0 ? precisionHits / precisionAttempts : 0,
+    falsePositiveRateOnNoChange: noChangePairs > 0 ? noChangeFalsePositives / noChangePairs : 0,
+    changeTypeAccuracy: typeAttempts > 0 ? typeCorrect / typeAttempts : 0,
+    avgInputTokens: results.length > 0 ? inputTokenSum / results.length : 0,
+    avgOutputTokens: results.length > 0 ? outputTokenSum / results.length : 0,
+  };
+}
+
+function groundTruthRect(pair: PairRecord): Rect | undefined {
+  return pair.groundTruthRect;
+}

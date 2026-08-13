@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+  body { font-family: -apple-system, sans-serif; background: #fff; margin: 0; padding: 40px; }
+  .form { max-width: 380px; }
+  .form h2 { font-size: 20px; margin: 0 0 20px; color: #111827; }
+  .field { margin-bottom: 16px; }
+  label { display: block; font-size: 13px; color: #374151; margin-bottom: 6px; font-weight: 500; }
+  input { width: 100%; box-sizing: border-box; padding: 9px 12px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 14px; }
+  .submit { width: 100%; padding: 10px; background: #111827; color: #fff; border: none; border-radius: 6px; font-size: 14px; font-weight: 600; cursor: pointer; }
+  .hint { font-size: 12px; color: #9ca3af; margin-top: 4px; }
+</style>
+</head>
+<body>
+  <div class="form" id="form">
+    <h2>Create account</h2>
+    <div class="field">
+      <label for="name">Full name</label>
+      <input id="name" type="text" value="Jordan Reyes">
+    </div>
+    <div class="field">
+      <label for="email">Email address</label>
+      <input id="email" type="text" value="jordan@example.com">
+      <div class="hint">We'll send a confirmation link.</div>
+    </div>
+    <div class="field">
+      <label for="team">Team size</label>
+      <input id="team" type="text" value="5-10 people">
+    </div>
+    <button class="submit" id="submit">Continue</button>
+  </div>
+</body>
+</html>

@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+  body { font-family: -apple-system, sans-serif; background: #f4f5f7; margin: 0; padding: 32px; }
+  .grid { display: flex; flex-wrap: wrap; gap: 16px; max-width: 900px; }
+  .card { width: 260px; background: #fff; border-radius: 8px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+  .card h3 { margin: 0 0 8px; font-size: 16px; color: #1a1a1a; }
+  .card p { margin: 0 0 12px; font-size: 13px; color: #6b7280; line-height: 1.4; }
+  .badge { display: inline-block; padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: 600; }
+  .badge.active { background: #dcfce7; color: #166534; }
+  .badge.pending { background: #fef3c7; color: #92400e; }
+  .btn { margin-top: 12px; display: inline-block; padding: 8px 16px; background: #2563eb; color: #fff; border-radius: 6px; font-size: 13px; text-decoration: none; }
+</style>
+</head>
+<body>
+  <div class="grid" id="grid">
+    <div class="card" id="card-1">
+      <h3>Project Falcon</h3>
+      <p>Migration of the billing service to the new event pipeline.</p>
+      <span class="badge active">Active</span>
+      <a class="btn" href="#">View details</a>
+    </div>
+    <div class="card" id="card-2">
+      <h3>Project Orion</h3>
+      <p>Rewriting the onboarding flow for enterprise customers.</p>
+      <span class="badge pending">Pending</span>
+      <a class="btn" href="#">View details</a>
+    </div>
+    <div class="card" id="card-3">
+      <h3>Project Nimbus</h3>
+      <p>Infrastructure audit for the EU data residency requirement.</p>
+      <span class="badge active">Active</span>
+      <a class="btn" href="#">View details</a>
+    </div>
+  </div>
+</body>
+</html>
