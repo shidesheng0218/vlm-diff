@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.68.0",
+    "gif.js.optimized": "^1.0.1",
     "openai": "^4.77.0",
     "pixelmatch": "^7.1.0",
     "playwright": "^1.62.1",

@@ -6,6 +6,14 @@ A research prototype demonstrating that **deterministic DOM diffing + perceptual
 
 📝 **[Read the full writeup on Dev.to](https://dev.to/shidesheng/building-a-visual-regression-tool-with-vlms-and-dom-diffing-1j4m)**
 
+## Demo
+
+The pipeline detects visual changes and identifies their regions automatically:
+
+![Detection Pipeline Demo](docs/pipeline-demo.gif)
+
+*Five test cases showing before/after screenshots with detected change regions highlighted in red.*
+
 ## The Problem
 
 Frontier vision-language models (VLMs) struggle with fine-grained visual differences. [VLM-SubtleBench (March 2026)](https://arxiv.org/abs/2603.07888) showed:
