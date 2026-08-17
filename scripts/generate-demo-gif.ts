@@ -57,13 +57,13 @@ function setPixel(png: PNG, x: number, y: number, color: { r: number; g: number;
   png.data[idx + 3] = 255;
 }
 
-// Add text label at top-left (simple 8px monospace, rough approximation)
+// Add text label at top-left with 5x7 bitmap font
 function drawLabel(png: PNG, text: string, bgColor: { r: number; g: number; b: number }) {
   const padding = 8;
-  const lineHeight = 20;
-  const charWidth = 8;
-  const textWidth = text.length * charWidth + padding * 2;
-  const textHeight = lineHeight + padding * 2;
+  const charHeight = 7;
+  const charSpacing = 6;
+  const textWidth = text.length * charSpacing + padding * 2;
+  const textHeight = charHeight + padding * 2;
 
   // Background rect
   for (let y = 0; y < textHeight; y++) {
@@ -72,9 +72,39 @@ function drawLabel(png: PNG, text: string, bgColor: { r: number; g: number; b: n
     }
   }
 
-  // Text rendering is skipped (would need a font lib like canvas or jimp for real text)
-  // For a quick prototype, we'll just draw the background box and assume external tooling
-  // will overlay text (or use a proper canvas-based solution). This comment serves as a note.
+  // Simple 5x7 bitmap font for uppercase letters
+  const font: Record<string, number[]> = {
+    'B': [0x7E, 0x49, 0x49, 0x49, 0x36], // 01111110, 01001001, ...
+    'E': [0x7F, 0x49, 0x49, 0x49, 0x41],
+    'F': [0x7F, 0x09, 0x09, 0x09, 0x01],
+    'O': [0x3E, 0x41, 0x41, 0x41, 0x3E],
+    'R': [0x7F, 0x09, 0x19, 0x29, 0x46],
+    'A': [0x7E, 0x09, 0x09, 0x09, 0x7E],
+    'T': [0x01, 0x01, 0x7F, 0x01, 0x01],
+    'C': [0x3E, 0x41, 0x41, 0x41, 0x22],
+    'H': [0x7F, 0x08, 0x08, 0x08, 0x7F],
+    'N': [0x7F, 0x04, 0x08, 0x10, 0x7F],
+    'G': [0x3E, 0x41, 0x49, 0x49, 0x3A],
+    'D': [0x7F, 0x41, 0x41, 0x22, 0x1C],
+    ' ': [0x00, 0x00, 0x00, 0x00, 0x00],
+    '(': [0x00, 0x1C, 0x22, 0x41, 0x00],
+    ')': [0x00, 0x41, 0x22, 0x1C, 0x00],
+  };
+
+  // Draw text
+  const textColor = { r: 255, g: 255, b: 255 };
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i].toUpperCase();
+    const glyph = font[char] || font[' '];
+    for (let col = 0; col < 5; col++) {
+      const byte = glyph[col];
+      for (let row = 0; row < 7; row++) {
+        if (byte & (1 << row)) {
+          setPixel(png, padding + i * charSpacing + col, padding + row, textColor);
+        }
+      }
+    }
+  }
 }
 
 async function main() {
