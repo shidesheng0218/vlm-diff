@@ -41,57 +41,32 @@ This hybrid approach should:
 
 ## Architecture
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    Input: Screenshot Pair                    │
-│           Before: card-list-before.png (960×500)            │
-│           After:  card-list-after.png  (960×500)            │
-│           + DOM snapshots (JSON, ~2KB each)                 │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│              Stage 1: Deterministic Detection                │
-│  ┌──────────────────────┐      ┌──────────────────────┐   │
-│  │   DOM Diff           │      │  Perceptual Diff     │   │
-│  │  • Element add/rm    │      │  • pixelmatch        │   │
-│  │  • Rect/text/style   │      │  • SSIM threshold    │   │
-│  │  • 1px jitter tol.   │      │  • Flood-fill group  │   │
-│  └──────────────────────┘      └──────────────────────┘   │
-│              │                           │                   │
-│              └─────────┬─────────────────┘                  │
-│                        ▼                                     │
-│              ┌──────────────────┐                           │
-│              │ Region Fusion    │                           │
-│              │ DOM=0 → unchanged│  ◄── Key innovation       │
-│              │ DOM+pixel → rect │                           │
-│              └──────────────────┘                           │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                    Changed? No → DONE (0 tokens)
-                              │
-                            Yes ▼
-┌─────────────────────────────────────────────────────────────┐
-│              Stage 2: VLM Classification                     │
-│                                                              │
-│  Crop region with 16px padding:                             │
-│    Before: [x:10, y:10, w:42, h:42]  ──┐                   │
-│    After:  [x:10, y:10, w:42, h:42]  ──┤                   │
-│                                         │                    │
-│                                         ▼                    │
-│                      ┌───────────────────────────┐          │
-│                      │  Claude Opus 4.8 / GPT-5  │          │
-│                      │  System: "Classify only"  │          │
-│                      │  Output: JSON schema      │          │
-│                      └───────────────────────────┘          │
-│                                  │                           │
-│                                  ▼                           │
-│  {                                                           │
-│    "changeType": "color-change",                            │
-│    "description": "Button background changed red→blue",     │
-│    "confidence": 0.92                                       │
-│  }                                                           │
-└─────────────────────────────────────────────────────────────┘
+```mermaid
+graph TB
+    Input["📸 Input: Screenshot Pair<br/>Before: card-list-before.png (960×500)<br/>After: card-list-after.png (960×500)<br/>+ DOM snapshots (JSON, ~2KB each)"]
+    
+    Input --> Stage1["⚙️ Stage 1: Deterministic Detection"]
+    
+    Stage1 --> DOMDiff["🔍 DOM Diff<br/>• Element add/remove<br/>• Rect/text/style changes<br/>• 1px jitter tolerance"]
+    Stage1 --> PixelDiff["🎨 Perceptual Diff<br/>• pixelmatch library<br/>• SSIM threshold<br/>• Flood-fill grouping"]
+    
+    DOMDiff --> Fusion["🔗 Region Fusion<br/><b>Key Innovation:</b><br/>DOM=0 → unchanged<br/>DOM+pixel → rect"]
+    PixelDiff --> Fusion
+    
+    Fusion --> Decision{"Changed?"}
+    Decision -->|No| Done["✅ DONE<br/>(0 tokens)"]
+    Decision -->|Yes| Stage2["🤖 Stage 2: VLM Classification"]
+    
+    Stage2 --> Crop["✂️ Crop regions with 16px padding<br/>Before: [x:10, y:10, w:42, h:42]<br/>After: [x:10, y:10, w:42, h:42]"]
+    Crop --> VLM["🧠 Claude Opus 4.8 / GPT-5<br/>System: 'Classify only'<br/>Output: JSON schema"]
+    VLM --> Result["📋 Output:<br/>{<br/>  changeType: 'color-change',<br/>  description: 'Button background red→blue',<br/>  confidence: 0.92<br/>}"]
+    
+    style Input fill:#e3f2fd
+    style Stage1 fill:#fff3e0
+    style Stage2 fill:#f3e5f5
+    style Fusion fill:#fff9c4
+    style Done fill:#c8e6c9
+    style Result fill:#c8e6c9
 ```
 
 ## Dataset
