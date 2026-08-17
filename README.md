@@ -1,5 +1,7 @@
 # VLM-Diff: Visual Regression Detection with Structural Ground Truth
 
+[![CI](https://github.com/shidesheng0218/vlm-diff/actions/workflows/ci.yml/badge.svg)](https://github.com/shidesheng0218/vlm-diff/actions/workflows/ci.yml)
+
 A research prototype demonstrating that **deterministic DOM diffing + perceptual pixel diffing → VLM classification** significantly outperforms naive "feed-two-screenshots-to-VLM" approaches for UI visual regression detection.
 
 📝 **[Read the full writeup on Dev.to](https://dev.to/shidesheng/building-a-visual-regression-tool-with-vlms-and-dom-diffing-1j4m)**
@@ -101,12 +103,14 @@ This hybrid approach should:
 Each pair includes:
 - `before.png` / `after.png` (960×500 screenshots)
 - `domBefore` / `domAfter` (JSON: element path, tag, rect, computed styles)
-- `groundTruthRect` (union bbox of mutated elements, for IoU scoring)
+- `groundTruthRect` (bbox of the specific mutated element, for IoU scoring — for `element-add`/`element-remove` this is the inserted/deleted child itself, not the container)
 - `kind` / `description` (mutation category and natural-language ground truth)
 
 ## Predicted Performance
 
 > **⚠️ Validation Status**: The predictions below are based on published benchmarks and architectural analysis. Full VLM evaluation is **pending API validation** due to infrastructure constraints. The deterministic detection layer (Stage 1) has been confirmed on real data: 36/36 changed pairs detected, 0/3 false positives on no-change pairs.
+>
+> The eval harness (`npm run eval:run`) now scores description quality with an **independent judge model** (a different vendor than the one being evaluated, via `createJudgeProvider()`) to avoid self-preference bias — same-model judging was a known gap in the original methodology and is fixed as of [#1](https://github.com/shidesheng0218/vlm-diff/pull/1).
 
 Based on **VLM-SubtleBench baseline** (GPT-5-thinking 77.8%, Claude Sonnet 4 62.6%) and **architectural analysis** (crop-then-classify avoids concatenation penalty; DOM ground truth filters noise):
 
@@ -169,7 +173,7 @@ Outputs `data/dataset.json` (39 pairs) + `data/images/*.png`
 ```bash
 npm test
 ```
-32 tests covering DOM diff, pixel diff, region fusion, VLM classification stubs.
+35 tests covering DOM diff, pixel diff, region fusion, VLM classification stubs, and provider selection (including the independent-judge fallback logic). Runs in CI on every push/PR.
 
 ### 4. Run evaluation (requires API key)
 ```bash
@@ -287,7 +291,7 @@ Could be composed: DiffShot decides *what* to test, this prototype detects *how*
    - SVG/canvas repaints
    - Third-party widget breakage (ads, chat, maps)
 
-2. **Ground-truth rect for element-add/remove is imprecise**: Currently uses container bbox, not the added/removed element itself. Affects precision scoring.
+2. **No-change sample size is small**: only 3 of 39 pairs are "no-change" (8%), so the reported 0% false-positive rate is based on a tiny denominator. A larger no-change sample would make that number statistically meaningful rather than anecdotal.
 
 3. **Fixture count is small**: 3 pages (card list, form, navbar). Doesn't cover:
    - Tables with 100+ rows

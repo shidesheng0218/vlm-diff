@@ -95,6 +95,13 @@ async function renderPair(
   const beforePng = await page.screenshot();
   const domBefore = await snapshotDom(page);
 
+  // element-remove deletes the container's last child; its rect must be
+  // captured before the mutation runs, since the element won't exist after.
+  const preRemoveRect =
+    mutation.kind === "element-remove" && mutation.selector
+      ? await lastChildRect(page, mutation.selector)
+      : undefined;
+
   if (mutation.selector) {
     await page.evaluate(
       ({ selector, fnSrc }) => {
@@ -112,7 +119,7 @@ async function renderPair(
   const afterPng = await page.screenshot();
   const domAfter = await snapshotDom(page);
 
-  const groundTruthRect = mutation.selector ? await boundingBoxOf(page, mutation.selector) : undefined;
+  const groundTruthRect = await resolveGroundTruthRect(page, mutation, preRemoveRect);
   await page.close();
 
   const beforeName = `${pairId}-before.png`;
@@ -154,6 +161,45 @@ async function boundingBoxOf(
     }
     return { x: Math.round(minX), y: Math.round(minY), w: Math.round(maxX - minX), h: Math.round(maxY - minY) };
   }, selector);
+}
+
+/** Rect of a container's last child, read BEFORE element-remove deletes it (the node won't exist afterward). */
+async function lastChildRect(
+  page: import("playwright").Page,
+  containerSelector: string,
+): Promise<{ x: number; y: number; w: number; h: number } | undefined> {
+  return page.evaluate((sel) => {
+    const container = document.querySelector(sel);
+    const child = container?.children[container.children.length - 1];
+    if (!child) return undefined;
+    const r = child.getBoundingClientRect();
+    return { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) };
+  }, containerSelector);
+}
+
+/** Rect of a container's newly appended last child, read AFTER element-add clones it in. */
+async function newLastChildRect(
+  page: import("playwright").Page,
+  containerSelector: string,
+): Promise<{ x: number; y: number; w: number; h: number } | undefined> {
+  return lastChildRect(page, containerSelector);
+}
+
+/**
+ * Ground-truth rect for scoring. element-add/element-remove get the rect of
+ * the specific child that was inserted/deleted, not the whole container
+ * (the previous implementation used the container bbox for both, which
+ * over-counts unrelated siblings and dilutes precision scoring).
+ */
+async function resolveGroundTruthRect(
+  page: import("playwright").Page,
+  mutation: Mutation,
+  preRemoveRect: { x: number; y: number; w: number; h: number } | undefined,
+): Promise<{ x: number; y: number; w: number; h: number } | undefined> {
+  if (!mutation.selector) return undefined;
+  if (mutation.kind === "element-remove") return preRemoveRect;
+  if (mutation.kind === "element-add") return newLastChildRect(page, mutation.selector);
+  return boundingBoxOf(page, mutation.selector);
 }
 
 async function main() {

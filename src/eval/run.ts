@@ -7,7 +7,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { createProvider } from "../provider/factory.js";
+import { createJudgeProvider, createProvider } from "../provider/factory.js";
 import { runFullPipeline, runPixelDiffOnly, runRawPairToVlm, type BaselineResult } from "./baselines.js";
 import { summarize } from "./metrics.js";
 import { judgeDescription, averageScore } from "./judge.js";
@@ -21,8 +21,10 @@ async function main() {
   const datasetJson = await readFile(join(DATA_DIR, "dataset.json"), "utf8");
   const pairs: PairRecord[] = JSON.parse(datasetJson);
   const provider = createProvider();
+  const judgeProvider = createJudgeProvider(provider);
 
-  console.log(`Loaded ${pairs.length} pairs. Running baselines with ${provider.name}/${provider.model}...\n`);
+  console.log(`Loaded ${pairs.length} pairs. Running baselines with ${provider.name}/${provider.model}...`);
+  console.log(`Judging descriptions with ${judgeProvider.name}/${judgeProvider.model}...\n`);
 
   const rawResults: BaselineResult[] = [];
   const pixelResults: BaselineResult[] = [];
@@ -43,15 +45,16 @@ async function main() {
   // free-text descriptions (pixel-diff-only has none).
   const byId = new Map(pairs.map((p) => [p.id, p]));
   const rawJudgeScores = await Promise.all(
-    rawResults.map((r) => judgeDescription(provider, byId.get(r.pairId)!.description, r.description)),
+    rawResults.map((r) => judgeDescription(judgeProvider, byId.get(r.pairId)!.description, r.description)),
   );
   const pipelineJudgeScores = await Promise.all(
-    pipelineResults.map((r) => judgeDescription(provider, byId.get(r.pairId)!.description, r.description)),
+    pipelineResults.map((r) => judgeDescription(judgeProvider, byId.get(r.pairId)!.description, r.description)),
   );
 
   const report = {
     generatedAt: new Date().toISOString(),
     provider: { name: provider.name, model: provider.model },
+    judgeProvider: { name: judgeProvider.name, model: judgeProvider.model },
     n: pairs.length,
     baselines: {
       rawPairToVlm: { ...rawSummary, avgDescriptionScore: averageScore(rawJudgeScores) },
