@@ -35,13 +35,7 @@ function pickPresetName(choice: ProviderChoice): string | undefined {
   return DETECT_ORDER.find((name) => process.env[PRESETS[name].keyEnv]);
 }
 
-export function createProvider(choice: ProviderChoice = {}): Provider {
-  const presetName = pickPresetName(choice);
-  if (!presetName) {
-    throw new Error(
-      `No API key found. Set one of: ${DETECT_ORDER.map((n) => PRESETS[n].keyEnv).join(", ")}`,
-    );
-  }
+function instantiate(presetName: string, choice: ProviderChoice): Provider {
   const preset = PRESETS[presetName];
   const apiKey = choice.apiKey || process.env[preset.keyEnv];
   if (!apiKey) throw new Error(`${preset.label} selected but ${preset.keyEnv} is not set.`);
@@ -49,4 +43,36 @@ export function createProvider(choice: ProviderChoice = {}): Provider {
 
   if (preset.protocol === "anthropic") return new AnthropicProvider(apiKey, model);
   return new OpenAICompatProvider(presetName, apiKey, preset.baseURL!, model);
+}
+
+export function createProvider(choice: ProviderChoice = {}): Provider {
+  const presetName = pickPresetName(choice);
+  if (!presetName) {
+    throw new Error(
+      `No API key found. Set one of: ${DETECT_ORDER.map((n) => PRESETS[n].keyEnv).join(", ")}`,
+    );
+  }
+  return instantiate(presetName, choice);
+}
+
+/**
+ * Provider for LLM-as-judge scoring, kept independent from the provider under
+ * test to avoid self-preference bias (a model scoring its own output tends to
+ * rate it higher than an independent judge would). Picks the first preset
+ * with an API key set that differs from `primary`'s vendor; falls back to
+ * `primary` itself (with a stderr warning) if no second key is available.
+ */
+export function createJudgeProvider(primary: Provider, choice: ProviderChoice = {}): Provider {
+  if (choice.provider || choice.apiKey) return createProvider(choice);
+
+  const altName = DETECT_ORDER.find(
+    (name) => name !== primary.name && process.env[PRESETS[name].keyEnv],
+  );
+  if (altName) return instantiate(altName, choice);
+
+  console.warn(
+    `[judge] No independent judge provider available (only ${primary.name}'s key is set) — ` +
+      `reusing ${primary.name} as judge. Scores may be inflated by self-preference bias.`,
+  );
+  return primary;
 }
