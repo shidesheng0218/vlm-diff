@@ -2,6 +2,8 @@
 data/
 results/
 dist/
+.cache/
+docs/demo-frames/
 
 # Dependencies
 node_modules/

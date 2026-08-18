@@ -8,6 +8,8 @@ import type { Provider } from "../provider/types.js";
 import { imageBlock, textBlock } from "../provider/types.js";
 import type { CandidateRegion } from "../detect/regions.js";
 import { PNG } from "pngjs";
+import type { CacheStore } from "../cache/store.js";
+import { computeCacheKey } from "../cache/key.js";
 
 export type ChangeKind =
   | "spatial-shift"
@@ -64,6 +66,28 @@ export async function classifyRegion(
   ]);
 
   return { ...parseClassification(result.text), usage: result.usage };
+}
+
+/**
+ * classifyRegion wrapped with a content-addressed cache: identical
+ * before/after crop pixels skip the VLM call entirely and return the
+ * previously stored classification with zero token usage.
+ */
+export async function classifyRegionCached(
+  provider: Provider,
+  cache: CacheStore,
+  beforeCrop: Buffer,
+  afterCrop: Buffer,
+): Promise<Classification & { cached: boolean }> {
+  const key = computeCacheKey(beforeCrop, afterCrop);
+  const hit = await cache.get(key);
+  if (hit) {
+    return { ...hit.classification, usage: { inputTokens: 0, outputTokens: 0 }, cached: true };
+  }
+
+  const result = await classifyRegion(provider, beforeCrop, afterCrop);
+  await cache.set(key, { classification: result, cachedAt: new Date().toISOString() });
+  return { ...result, cached: false };
 }
 
 export function parseClassification(text: string): Omit<Classification, "usage"> {

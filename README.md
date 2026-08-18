@@ -156,7 +156,7 @@ Outputs `data/dataset.json` (39 pairs) + `data/images/*.png`
 ```bash
 npm test
 ```
-35 tests covering DOM diff, pixel diff, region fusion, VLM classification stubs, and provider selection (including the independent-judge fallback logic). Runs in CI on every push/PR.
+49 tests covering DOM diff, pixel diff, region fusion, VLM classification stubs, classification caching, cost estimation, and provider selection (including the independent-judge fallback logic). Runs in CI on every push/PR.
 
 ### 4. Run evaluation (requires API key)
 ```bash
@@ -168,9 +168,33 @@ This will:
 1. Run all three baselines on 39 pairs (~117 VLM calls)
 2. Compute metrics (recall, precision, FP rate, classification accuracy)
 3. Judge description quality via LLM-as-judge
-4. Write `results/report.json`
+4. Write `results/report.json` **and** a self-contained `results/report.html` with inline before/after thumbnails, detected regions, and per-pair cost
 
-**Estimated cost**: $3-5 (Anthropic Opus 4.8) or $4-6 (OpenAI GPT-5)
+**Estimated cost**: $3-5 (Anthropic Opus 4.8) or $4-6 (OpenAI GPT-5) on a cold run — see [Cost Optimizations](#cost-optimizations) below for how re-runs get cheaper.
+
+## Cost Optimizations
+
+Re-running the eval against the same dataset (e.g. in CI on every PR) shouldn't re-pay for classifications it already has an answer for.
+
+### Classification cache
+
+`fullPipeline`'s VLM classification step is cached by content hash of the cropped before/after region (`src/cache/`). Identical crops — same pixels, regardless of which pair they came from — skip the model call entirely:
+
+```bash
+npm run eval:run              # first run: all cache misses
+npm run eval:run              # second run: all cache hits, ~$0 spent on classification
+VLM_DIFF_NO_CACHE=1 npm run eval:run  # force a clean run, bypassing the cache
+```
+
+Cache entries live in `.cache/classifications/` (gitignored) with a 7-day TTL. The store is a small interface (`CacheStore`) so a Redis- or S3-backed implementation can be swapped in for shared/CI caching without touching call sites.
+
+### Cost tracking
+
+`src/cost/pricing.ts` estimates USD cost from token usage using a small per-model pricing table. `results/report.json` includes a `cost` block with cache hit/miss counts and dollars spent vs. saved; `results/report.html` shows the same numbers as a summary banner plus a per-pair breakdown. Pricing is approximate and drifts as providers change rates — override it with `PRICING_OVERRIDES_JSON` if you're tracking real spend:
+
+```bash
+export PRICING_OVERRIDES_JSON='{"claude-sonnet-5":{"inputPerMillion":3,"outputPerMillion":15}}'
+```
 
 ## Technical Deep-Dive
 

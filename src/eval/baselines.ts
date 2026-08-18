@@ -8,8 +8,9 @@ import type { Provider } from "../provider/types.js";
 import { imageBlock, textBlock } from "../provider/types.js";
 import { detect, type DetectionResult } from "../detect/regions.js";
 import { diffImages, groupRegions } from "../detect/perceptual-diff.js";
-import { classifyRegion, cropRegion } from "../classify/vlm-classify.js";
+import { classifyRegion, classifyRegionCached, cropRegion } from "../classify/vlm-classify.js";
 import type { ChangeKind, Classification } from "../classify/vlm-classify.js";
+import type { CacheStore } from "../cache/store.js";
 import type { PairRecord } from "./types.js";
 // re-exported for callers that only need the record shape from this module
 export type { PairRecord };
@@ -23,6 +24,7 @@ export interface BaselineResult {
   description?: string;
   inputTokens: number;
   outputTokens: number;
+  cached?: boolean;
 }
 
 const RAW_PAIR_SYSTEM = `You are comparing a "before" and "after" screenshot of the same UI. Determine if anything changed, and if so, what and where.
@@ -89,7 +91,12 @@ export async function runPixelDiffOnly(pair: PairRecord, dataDir: string): Promi
   };
 }
 
-export async function runFullPipeline(provider: Provider, pair: PairRecord, dataDir: string): Promise<BaselineResult> {
+export async function runFullPipeline(
+  provider: Provider,
+  pair: PairRecord,
+  dataDir: string,
+  cache?: CacheStore,
+): Promise<BaselineResult> {
   const before = await readFile(`${dataDir}/${pair.before}`);
   const after = await readFile(`${dataDir}/${pair.after}`);
   const detection: DetectionResult = detect(pair.domBefore, pair.domAfter, before, after);
@@ -110,7 +117,9 @@ export async function runFullPipeline(provider: Provider, pair: PairRecord, data
   const primary = detection.regions.reduce((a, b) => (a.w * a.h > b.w * b.h ? a : b));
   const beforeCrop = cropRegion(before, primary);
   const afterCrop = cropRegion(after, primary);
-  const classification: Classification = await classifyRegion(provider, beforeCrop, afterCrop);
+  const classification: Classification & { cached?: boolean } = cache
+    ? await classifyRegionCached(provider, cache, beforeCrop, afterCrop)
+    : await classifyRegion(provider, beforeCrop, afterCrop);
 
   return {
     pairId: pair.id,
@@ -121,5 +130,6 @@ export async function runFullPipeline(provider: Provider, pair: PairRecord, data
     description: classification.description,
     inputTokens: classification.usage.inputTokens,
     outputTokens: classification.usage.outputTokens,
+    cached: classification.cached,
   };
 }

@@ -1,8 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { PNG } from "pngjs";
-import { classifyRegion, cropRegion, parseClassification } from "./vlm-classify.js";
+import { classifyRegion, classifyRegionCached, cropRegion, parseClassification } from "./vlm-classify.js";
 import { scriptedProvider } from "../test-utils.js";
+import { MemoryCacheStore } from "../cache/store.js";
 
 function solidPng(width: number, height: number, rgb: [number, number, number]): Buffer {
   const png = new PNG({ width, height });
@@ -65,4 +66,40 @@ test("classifyRegion: sends before/after image blocks and parses response", asyn
   assert.equal(provider.calls.length, 1);
   const content = provider.calls[0][0].content;
   assert.equal(content.filter((b) => b.type === "image").length, 2);
+});
+
+test("classifyRegionCached: second call with identical crops is a cache hit and skips the provider", async () => {
+  const provider = scriptedProvider([
+    { text: '{"changeType":"color-change","description":"button turned red","confidence":0.9}' },
+  ]);
+  const cache = new MemoryCacheStore();
+  const before = solidPng(20, 20, [255, 255, 255]);
+  const after = solidPng(20, 20, [200, 0, 0]);
+
+  const first = await classifyRegionCached(provider, cache, before, after);
+  assert.equal(first.cached, false);
+  assert.equal(provider.calls.length, 1);
+
+  const second = await classifyRegionCached(provider, cache, before, after);
+  assert.equal(second.cached, true);
+  assert.equal(second.changeType, "color-change");
+  assert.equal(second.usage.inputTokens, 0);
+  assert.equal(provider.calls.length, 1); // no additional call made
+});
+
+test("classifyRegionCached: different crops are separate cache entries", async () => {
+  const provider = scriptedProvider([
+    { text: '{"changeType":"color-change","description":"a","confidence":0.9}' },
+    { text: '{"changeType":"text-change","description":"b","confidence":0.8}' },
+  ]);
+  const cache = new MemoryCacheStore();
+  const before = solidPng(20, 20, [255, 255, 255]);
+  const afterA = solidPng(20, 20, [200, 0, 0]);
+  const afterB = solidPng(20, 20, [0, 200, 0]);
+
+  const a = await classifyRegionCached(provider, cache, before, afterA);
+  const b = await classifyRegionCached(provider, cache, before, afterB);
+  assert.equal(a.cached, false);
+  assert.equal(b.cached, false);
+  assert.equal(provider.calls.length, 2);
 });
