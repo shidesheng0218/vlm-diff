@@ -68,6 +68,28 @@ test("classifyRegion: sends before/after image blocks and parses response", asyn
   assert.equal(content.filter((b) => b.type === "image").length, 2);
 });
 
+test("classifyRegion: DOM hint is appended to the system prompt", async () => {
+  const provider = scriptedProvider([
+    { text: '{"changeType":"style-change","description":"border radius removed","confidence":0.9}' },
+  ]);
+  const before = solidPng(20, 20, [255, 255, 255]);
+  const after = solidPng(20, 20, [255, 255, 255]);
+  await classifyRegion(provider, before, after, { fields: ["borderRadius"], id: "card-1" });
+  assert.match(provider.systems[0], /borderRadius/);
+  assert.match(provider.systems[0], /#card-1/);
+  assert.match(provider.systems[0], /ground truth/);
+});
+
+test("classifyRegion: no hint keeps the base system prompt", async () => {
+  const provider = scriptedProvider([
+    { text: '{"changeType":"other","description":"x","confidence":0.5}' },
+  ]);
+  const before = solidPng(20, 20, [255, 255, 255]);
+  const after = solidPng(20, 20, [255, 255, 255]);
+  await classifyRegion(provider, before, after);
+  assert.doesNotMatch(provider.systems[0], /ground truth/);
+});
+
 test("classifyRegionCached: second call with identical crops is a cache hit and skips the provider", async () => {
   const provider = scriptedProvider([
     { text: '{"changeType":"color-change","description":"button turned red","confidence":0.9}' },

@@ -9,7 +9,7 @@ import { imageBlock, textBlock } from "../provider/types.js";
 import { detect, type DetectionResult } from "../detect/regions.js";
 import { diffImages, groupRegions } from "../detect/perceptual-diff.js";
 import { classifyRegion, classifyRegionCached, cropRegion } from "../classify/vlm-classify.js";
-import type { ChangeKind, Classification } from "../classify/vlm-classify.js";
+import type { ChangeKind, Classification, DomHint } from "../classify/vlm-classify.js";
 import type { CacheStore } from "../cache/store.js";
 import type { PairRecord } from "./types.js";
 // re-exported for callers that only need the record shape from this module
@@ -96,6 +96,8 @@ export async function runFullPipeline(
   pair: PairRecord,
   dataDir: string,
   cache?: CacheStore,
+  /** pass the DOM diff's changedFields to the classifier as a text hint (default on) */
+  useDomHint: boolean = true,
 ): Promise<BaselineResult> {
   const before = await readFile(`${dataDir}/${pair.before}`);
   const after = await readFile(`${dataDir}/${pair.after}`);
@@ -117,9 +119,13 @@ export async function runFullPipeline(
   const primary = detection.regions.reduce((a, b) => (a.w * a.h > b.w * b.h ? a : b));
   const beforeCrop = cropRegion(before, primary);
   const afterCrop = cropRegion(after, primary);
+  const hint: DomHint | undefined =
+    useDomHint && primary.domChangedFields && primary.domChangedFields.length > 0
+      ? { fields: primary.domChangedFields, id: primary.domId }
+      : undefined;
   const classification: Classification & { cached?: boolean } = cache
-    ? await classifyRegionCached(provider, cache, beforeCrop, afterCrop)
-    : await classifyRegion(provider, beforeCrop, afterCrop);
+    ? await classifyRegionCached(provider, cache, beforeCrop, afterCrop, hint)
+    : await classifyRegion(provider, beforeCrop, afterCrop, hint);
 
   return {
     pairId: pair.id,

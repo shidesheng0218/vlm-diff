@@ -48,12 +48,36 @@ const SYSTEM_PROMPT = `You are comparing a cropped "before" region and the corre
 Respond with strict JSON only, no markdown fences:
 {"changeType": "spatial-shift" | "color-change" | "size-change" | "text-change" | "element-add" | "element-remove" | "style-change" | "other", "description": "<one sentence>", "confidence": <0-1>}`;
 
+/**
+ * Ground-truth evidence from the DOM diff, passed to the classifier as a
+ * text hint. Motivation: the 2026-08-19 MVP showed crop-then-classify loses
+ * the reference frame needed for type judgments (border-radius needs other
+ * corners, color shift needs other swatches) — but the DOM diff already
+ * knows which computed properties changed, and telling the model costs
+ * ~20 tokens.
+ */
+export interface DomHint {
+  /** computed-property names that changed, e.g. ["borderRadius"], ["color","backgroundColor"] */
+  fields: string[];
+  /** element id when known */
+  id?: string;
+}
+
+export function buildSystemPrompt(hint?: DomHint): string {
+  if (!hint || hint.fields.length === 0) return SYSTEM_PROMPT;
+  const target = hint.id ? ` (element #${hint.id})` : "";
+  return `${SYSTEM_PROMPT}
+
+Additional evidence from the deterministic DOM diff: the element in this region${target} changed these computed properties: ${hint.fields.join(", ")}. Treat this as a strong prior for changeType — the visual difference in the crop may be too subtle to see, but the DOM-level change is ground truth, not a guess.`;
+}
+
 export async function classifyRegion(
   provider: Provider,
   beforeCrop: Buffer,
   afterCrop: Buffer,
+  hint?: DomHint,
 ): Promise<Classification> {
-  const result = await provider.send(SYSTEM_PROMPT, [
+  const result = await provider.send(buildSystemPrompt(hint), [
     {
       role: "user",
       content: [
@@ -78,14 +102,15 @@ export async function classifyRegionCached(
   cache: CacheStore,
   beforeCrop: Buffer,
   afterCrop: Buffer,
+  hint?: DomHint,
 ): Promise<Classification & { cached: boolean }> {
-  const key = computeCacheKey(beforeCrop, afterCrop);
+  const key = computeCacheKey(beforeCrop, afterCrop, hint ? JSON.stringify(hint) : undefined);
   const hit = await cache.get(key);
   if (hit) {
     return { ...hit.classification, usage: { inputTokens: 0, outputTokens: 0 }, cached: true };
   }
 
-  const result = await classifyRegion(provider, beforeCrop, afterCrop);
+  const result = await classifyRegion(provider, beforeCrop, afterCrop, hint);
   await cache.set(key, { classification: result, cachedAt: new Date().toISOString() });
   return { ...result, cached: false };
 }

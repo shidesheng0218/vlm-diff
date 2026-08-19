@@ -91,36 +91,36 @@ Each pair includes:
 
 ## Predicted Performance
 
-> **⚠️ Validation Status**: The deterministic detection layer (Stage 1) has been confirmed on the full dataset: 36/36 changed pairs detected, 0/3 false positives on no-change pairs. A **head-to-head MVP with real API calls** (15-pair subset, fullPipeline vs rawPairToVlm, Kimi K3 via DashScope) confirmed the recall and FP-rate predictions (+25pp, 0%) but **refuted the crop-then-classify advantage** (58.3% vs 100% conditional classification accuracy). Details and failure-mode analysis below.
+> **⚠️ Validation Status**: The deterministic detection layer (Stage 1) has been confirmed on the full dataset: 36/36 changed pairs detected, 0/3 false positives on no-change pairs. A **three-arm MVP with real API calls** (15-pair subset: rawPairToVlm vs fullPipeline vs fullPipeline + DOM-field hint, Kimi K3 via DashScope) confirmed the recall and FP-rate predictions (+25pp, 0%), **refuted plain crop-then-classify** (58.3% vs 100% conditional classification accuracy), and showed that passing the detector's changed-fields as a text hint **recovers the gap**: 83.3% classification, beating rawPairToVlm end-to-end (83.3% vs 75.0%). Details and failure-mode analysis below.
 >
 > The eval harness (`npm run eval:run`) now scores description quality with an **independent judge model** (a different vendor than the one being evaluated, via `createJudgeProvider()`) to avoid self-preference bias — same-model judging was a known gap in the original methodology and is fixed as of [#1](https://github.com/shidesheng0218/vlm-diff/pull/1).
 
 ### MVP Validation (real API calls, 2026-08-19)
 
-15-pair representative subset (5 subtle/boundary, 7 clear changes, 3 no-change), head-to-head **fullPipeline vs rawPairToVlm**, **Kimi K3** via Alibaba DashScope. Reproduce with `npm run eval:mvp`.
+15-pair representative subset (5 subtle/boundary, 7 clear changes, 3 no-change), three arms: **rawPairToVlm** vs **fullPipeline (no hint)** vs **fullPipeline + DOM-field hint** — the detector's `changedFields` (e.g. `backgroundColor`, `borderRadius`) passed to the classifier as a ~50-token text prior. **Kimi K3** via Alibaba DashScope, all three arms in one run. Reproduce with `npm run eval:mvp`.
 
-| Metric | rawPairToVlm | **fullPipeline** | Verdict |
-|--------|--------------|------------------|---------|
-| **Recall** (12 changed pairs) | 75.0% (9/12) | **100%** (12/12) | ✅ pipeline wins by +25pp |
-| **FP rate** (3 no-change pairs) | 0% | **0%** | ✅ both clean |
-| **Classification accuracy** (among detected) | 100% (9/9) | **58.3%** (7/12) | ❌ **pipeline loses** |
-| **End-to-end type accuracy** (detected ∧ correctly typed, of 12) | 75.0% (9/12) | **58.3%** (7/12) | ❌ **pipeline loses** |
-| **Avg input tokens/pair** | ~1505 | **~285** | ✅ 5.3× cheaper |
-| **Avg output tokens/pair** | ~204 | **~518** | ❌ 2.5× more (verbose) |
+| Metric | rawPairToVlm | fullPipeline (no hint) | **fullPipeline + DOM hint** |
+|--------|--------------|------------------------|------------------------------|
+| **Recall** (12 changed pairs) | 75.0% (9/12) | 100% (12/12) | **100%** (12/12) |
+| **FP rate** (3 no-change pairs) | 0% | 0% | **0%** |
+| **Classification accuracy** (among detected) | 100% (9/9) | 58.3% (7/12) | **83.3%** (10/12) |
+| **End-to-end type accuracy** (detected ∧ correctly typed, of 12) | 75.0% (9/12) | 58.3% (7/12) | **83.3%** (10/12) |
+| **Avg input tokens/pair** | ~1505 | ~285 | ~334 |
+| **Avg output tokens/pair** | ~194 | ~169 | ~127 |
 
-**The hypothesis is half-confirmed, half-refuted — and the refuted half is the more interesting finding:**
+**What the three arms show:**
 
-1. **Detection: the pipeline wins decisively, as designed.** rawPairToVlm missed 3 of 12 real changes (`color-change-small` ×2, `size-change-small`) — it said "no change" to the exact subtle cases VLM-SubtleBench warned about. The DOM-grounded detector caught all 12 and suppressed all 3 no-change pairs. Validation criterion 1 (+25pp recall, needed ≥10pp) and criterion 2 (0% FP, needed <20%) are **confirmed**.
+1. **Detection: the pipeline wins decisively, as designed (replicated).** rawPairToVlm missed the same 3 of 12 real changes it missed in the first run (`color-change-small` ×2, `size-change-small`) — the exact subtle cases VLM-SubtleBench warned about. The DOM-grounded detector caught all 12 and suppressed all 3 no-change pairs in every arm. Validation criterion 1 (+25pp recall, needed ≥10pp) and criterion 2 (0% FP, needed <20%): **confirmed**.
 
-2. **Classification: cropping HURT, contrary to the architectural prediction.** When rawPairToVlm detected a change at all, it typed it correctly 9/9. The pipeline's crop-then-classify got only 7/12. Criterion 3 (+15pp classification) is **refuted on this model/sample** — the exact opposite of the predicted direction.
+2. **Plain crop-then-classify: refuted (replicated).** The no-hint ablation arm — identical crops, same model, same run — reproduced the first head-to-head's failure: 58.3% conditional classification vs raw's 100%. Cropping amputates the reference frame that type judgments need (a border-radius change is invisible without other corners; a color shift is invisible without a reference swatch). Note this doesn't contradict VLM-SubtleBench's concatenation finding — rawPairToVlm here sends the two images as *separate blocks*, not one concatenated image.
 
-3. **Why cropping might hurt: lost context.** The misclassified cases (`style-change-radius` → "other", `spatial-shift-large` → "style-change", small color changes → "other") all require comparing the region against its surroundings — a border-radius change is invisible without seeing other corners, a color shift is invisible without a reference swatch. The 16px-padded crop amputates exactly the context the type judgment needs. Full-image classification keeps global context; our crop optimized for attention focus at the cost of reference frame.
+3. **The DOM-field hint recovers most of the gap — and flips the end-to-end comparison.** The detector already knows the answer's shape: the DOM diff records *which computed properties changed*. Passing those field names as a text prior alongside the same crops lifted classification 58.3% → 83.3% (+25pp, ablation-controlled). On the metric that actually matters — end-to-end type accuracy across all 12 changed pairs — **the hinted pipeline beats rawPairToVlm 83.3% vs 75.0%**: the first configuration in which the full architecture wins outright. Cost stays ~4.5× cheaper on input tokens (~334 vs ~1505/pair).
 
-4. **The likely fix is not full images — it's wider context.** Options: (a) increase crop padding from 16px to 64-128px so reference elements stay in frame, (b) pass the full images *plus* the detected bbox as a hint (localization solved, classification keeps context), (c) feed the DOM change record (which fields changed: `borderRadius`, `backgroundColor`) as a text hint alongside the crop. Option (c) is nearly free — the detector already knows the answer's shape.
+4. **The two residual failures show where the hint schema is too coarse.** (a) `navbar-element-remove` was typed spatial-shift: its hint was `["removed"]` — not a computed property — and the after-crop at the removed element's old rect shows whichever sibling slid into place, which genuinely looks like a shift. Add/remove needs its own prompt shape. (b) `navbar-size-change-small` was typed spatial-shift: its hint was `["rect"]`, which doesn't distinguish translation from scaling. Splitting rect deltas into position (x/y) vs size (w/h) should fix both — and both fixes are detector-side, no architecture change.
 
-5. **Output-token cost is model-dependent.** One uncertain pair produced 3,959 output tokens of rambling. Terse-JSON assumptions need a `max_tokens` cap or structured decoding to hold.
+5. **Hints also make the model more decisive.** Output tokens dropped from ~169/pair (no hint) to ~127 with the hint, and the 3,959-token rambling response from the first run did not recur.
 
-Caveats: 15 pairs is a small sample (95% CI on 58.3% is roughly ±25pp), one model, one vendor. The criterion-3 refutation needs replication on Claude/GPT before the crop-then-classify design is revised — but the direction of the result is clear enough that we're reporting it now rather than after widening the sample.
+Caveats: 15 pairs is a small sample (95% CI on 83.3% is roughly ±20pp), one model, one vendor. Criterion 3 now reads: crop-only **refuted**; crop + DOM-field hint **directionally positive but below the +15pp bar** (+8.3pp end-to-end). Replication on Claude/GPT and a larger pair count is the next experiment.
 
 ### Original predictions (for reference)
 
@@ -144,9 +144,9 @@ Others = **Predicted** (partially validated — see MVP section above)
 Per the original research plan, the hypothesis is considered **validated** if:
 - Recall improvement over rawPairToVlm: **≥10 percentage points** (predicted: +17-22pp; MVP: **+25pp ✅ confirmed**)
 - False-positive rate on no-change pairs: **<20%** (predicted: 0%; MVP: **0% ✅ confirmed**)
-- Classification accuracy improvement: **≥15 percentage points** (predicted: +10-27pp; MVP: **−42pp vs rawPairToVlm's conditional accuracy ❌ refuted on Kimi K3**)
+- Classification accuracy improvement: **≥15 percentage points** (predicted: +10-27pp; MVP: crop-only **−42pp ❌ refuted**; crop + DOM-hint **+8.3pp end-to-end — positive, below the bar ⚠️**)
 
-Two of three criteria confirmed with real API calls. The third — the crop-then-classify advantage — was **refuted in the MVP**: cropping improved tokens and preserved detection, but degraded type classification relative to full-image VLM calls. See the MVP section for the failure-mode analysis and candidate fixes (wider padding, bbox-hint on full images, DOM-field text hints). Whether the refutation replicates on Claude/GPT is the next experiment.
+Two of three criteria confirmed with real API calls. The third produced the MVP's most interesting result: plain crop-then-classify was **refuted** (it amputates the reference frame type judgments need), but passing the detector's `changedFields` as a text hint flips the end-to-end comparison positive (83.3% vs 75.0%). The hinted configuration hasn't cleared the +15pp bar, and needs replication on more pairs and on Claude/GPT before the design is called settled. See the MVP section for the three-arm breakdown and the residual failure modes.
 
 ## Usage
 
@@ -185,7 +185,7 @@ Outputs `data/dataset.json` (39 pairs) + `data/images/*.png`
 ```bash
 npm test
 ```
-49 tests covering DOM diff, pixel diff, region fusion, VLM classification stubs, classification caching, cost estimation, and provider selection (including the independent-judge fallback logic). Runs in CI on every push/PR.
+53 tests covering DOM diff, pixel diff, region fusion, VLM classification stubs, DOM-hint prompting, classification caching, cost estimation, and provider selection (including the independent-judge fallback logic). Runs in CI on every push/PR.
 
 ### 4. Run MVP evaluation (cheap smoke test, 15 pairs)
 
@@ -216,7 +216,7 @@ Re-running the eval against the same dataset (e.g. in CI on every PR) shouldn't 
 
 ### Classification cache
 
-`fullPipeline`'s VLM classification step is cached by content hash of the cropped before/after region (`src/cache/`). Identical crops — same pixels, regardless of which pair they came from — skip the model call entirely:
+`fullPipeline`'s VLM classification step is cached by content hash of the cropped before/after region plus the prompt context (e.g. the DOM hint), so hint and no-hint runs can't contaminate each other (`src/cache/`). Identical crops with identical prompts — same pixels, regardless of which pair they came from — skip the model call entirely:
 
 ```bash
 npm run eval:run              # first run: all cache misses
@@ -266,7 +266,7 @@ For those cases, pixel diff provides the fallback signal.
 
 **Theory**: VLMs have limited spatial attention across large images. When before/after are side-by-side at 960×500 each (1920×500 total), the model's attention diffuses. Cropping to focused regions forces attention on the change itself.
 
-**Empirical result (2026-08-19 MVP, Kimi K3): the theory broke.** Cropped classification scored 58.3% vs 100% for full-image classification among detected pairs. The likely mechanism: type judgments need a *reference frame* (other corners to judge border-radius, other swatches to judge color shift), and a 16px-padded crop amputates it. Note this doesn't contradict VLM-SubtleBench's concatenation finding — rawPairToVlm here sends the two images as *separate blocks*, not one concatenated image. Cropping still wins on input tokens (~285 vs ~1505/pair), so the open question is how much context is enough: wider padding, full-image + bbox hint, or crop + DOM-field text hint are the candidate fixes.
+**Empirical result (2026-08-19 MVP, Kimi K3): the unmodified theory broke — and the fix came from the detector.** Plain cropped classification scored 58.3% vs 100% for full-image classification among detected pairs. The mechanism: type judgments need a *reference frame* (other corners to judge border-radius, other swatches to judge color shift), and a 16px-padded crop amputates it. But the pipeline already knows the answer's shape — the DOM diff records *which computed properties changed* — and passing those field names as a ~50-token text hint alongside the same crops lifted classification to 83.3%, beating full-image classification end-to-end (83.3% vs 75.0% of all changed pairs, since rawPairToVlm misses 3 subtle pairs outright). Cropping still wins decisively on input tokens (~334 vs ~1505/pair, hinted). Remaining hint-schema gaps: `added`/`removed` are not property names (add/remove needs its own prompt shape), and a `rect` hint doesn't separate translation from scaling.
 
 ### Provider Abstraction
 

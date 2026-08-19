@@ -89,13 +89,15 @@ async function main() {
     return results;
   }
 
-  const pipelineResults = await runBaseline("fullPipeline", (p) => runFullPipeline(provider, p, DATA_DIR));
+  const pipelineHintResults = await runBaseline("fullPipeline + DOM hint", (p) => runFullPipeline(provider, p, DATA_DIR, undefined, true));
+  const pipelineNoHintResults = await runBaseline("fullPipeline (no hint, ablation)", (p) => runFullPipeline(provider, p, DATA_DIR, undefined, false));
   const rawResults = await runBaseline("rawPairToVlm", (p) => runRawPairToVlm(provider, p, DATA_DIR));
 
-  const summary = summarize(pairs, pipelineResults);
+  const hintSummary = summarize(pairs, pipelineHintResults);
+  const noHintSummary = summarize(pairs, pipelineNoHintResults);
   const rawSummary = summarize(pairs, rawResults);
 
-  const allResults = [...pipelineResults, ...rawResults];
+  const allResults = [...pipelineHintResults, ...pipelineNoHintResults, ...rawResults];
   const totalInput = allResults.reduce((s, r) => s + r.inputTokens, 0);
   const totalOutput = allResults.reduce((s, r) => s + r.outputTokens, 0);
   const price = PRICE_PER_MTOK[provider.name] ?? { input: 0, output: 0 };
@@ -110,7 +112,8 @@ async function main() {
     n: pairs.length,
     pairIds: MVP_IDS,
     baselines: {
-      fullPipeline: { metrics: summary, perPair: perPairDetail(pipelineResults) },
+      fullPipelineWithDomHint: { metrics: hintSummary, perPair: perPairDetail(pipelineHintResults) },
+      fullPipelineNoHint: { metrics: noHintSummary, perPair: perPairDetail(pipelineNoHintResults) },
       rawPairToVlm: { metrics: rawSummary, perPair: perPairDetail(rawResults) },
     },
     tokens: { totalInput, totalOutput },
@@ -121,11 +124,11 @@ async function main() {
   const outPath = join(RESULTS_DIR, "mvp-report.json");
   await writeFile(outPath, JSON.stringify(report, null, 2));
 
-  console.log("=== MVP Summary (fullPipeline vs rawPairToVlm) ===");
-  console.log(`Recall:                    ${pct(summary.recall)} vs ${pct(rawSummary.recall)}`);
-  console.log(`FP rate (no-change):       ${pct(summary.falsePositiveRateOnNoChange)} vs ${pct(rawSummary.falsePositiveRateOnNoChange)}`);
-  console.log(`Classification accuracy:   ${pct(summary.changeTypeAccuracy)} vs ${pct(rawSummary.changeTypeAccuracy)}`);
-  console.log(`Avg tokens/pair:           ${summary.avgInputTokens.toFixed(0)}+${summary.avgOutputTokens.toFixed(0)} vs ${rawSummary.avgInputTokens.toFixed(0)}+${rawSummary.avgOutputTokens.toFixed(0)}`);
+  console.log("=== MVP Summary (pipeline+hint / pipeline-hint / raw) ===");
+  console.log(`Recall:                    ${pct(hintSummary.recall)} / ${pct(noHintSummary.recall)} / ${pct(rawSummary.recall)}`);
+  console.log(`FP rate (no-change):       ${pct(hintSummary.falsePositiveRateOnNoChange)} / ${pct(noHintSummary.falsePositiveRateOnNoChange)} / ${pct(rawSummary.falsePositiveRateOnNoChange)}`);
+  console.log(`Classification accuracy:   ${pct(hintSummary.changeTypeAccuracy)} / ${pct(noHintSummary.changeTypeAccuracy)} / ${pct(rawSummary.changeTypeAccuracy)}`);
+  console.log(`Avg tokens/pair (in+out):  ${hintSummary.avgInputTokens.toFixed(0)}+${hintSummary.avgOutputTokens.toFixed(0)} / ${noHintSummary.avgInputTokens.toFixed(0)}+${noHintSummary.avgOutputTokens.toFixed(0)} / ${rawSummary.avgInputTokens.toFixed(0)}+${rawSummary.avgOutputTokens.toFixed(0)}`);
   if (price.input > 0) {
     console.log(`Total cost:                $${costUsd.toFixed(4)}`);
   } else {

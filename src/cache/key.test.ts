@@ -20,3 +20,18 @@ test("computeCacheKey: before/after are not commutative", () => {
   const b = Buffer.from([4, 5, 6]);
   assert.notEqual(computeCacheKey(a, b), computeCacheKey(b, a));
 });
+
+test("computeCacheKey: prompt context changes the key for identical pixels", () => {
+  const before = Buffer.from([1, 2, 3]);
+  const after = Buffer.from([4, 5, 6]);
+  const noHint = computeCacheKey(before, after);
+  const withHint = computeCacheKey(before, after, '{"fields":["borderRadius"]}');
+  assert.notEqual(noHint, withHint);
+});
+
+test("computeCacheKey: same prompt context is stable", () => {
+  const before = Buffer.from([1, 2, 3]);
+  const after = Buffer.from([4, 5, 6]);
+  const ctx = '{"fields":["borderRadius"]}';
+  assert.equal(computeCacheKey(before, after, ctx), computeCacheKey(before, after, ctx));
+});
