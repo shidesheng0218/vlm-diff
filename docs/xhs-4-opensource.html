@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    width: 1080px;
+    height: 1440px;
+    background: #0a0e1a;
+    color: #e8eaf0;
+    padding: 90px 70px;
+    display: flex;
+    flex-direction: column;
+  }
+  .eyebrow {
+    font-size: 22px;
+    color: #60a5fa;
+    font-weight: 700;
+    letter-spacing: 2px;
+    margin-bottom: 24px;
+  }
+  h1 {
+    font-size: 50px;
+    font-weight: 800;
+    color: #ffffff;
+    line-height: 1.4;
+    margin-bottom: 50px;
+  }
+  .checklist {
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+    margin-bottom: 60px;
+  }
+  .check-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 16px;
+    font-size: 25px;
+    color: #cbd5e1;
+    line-height: 1.5;
+  }
+  .check-icon {
+    color: #34d399;
+    font-size: 26px;
+    font-weight: 900;
+    flex-shrink: 0;
+  }
+  .repo-box {
+    background: rgba(255,255,255,0.04);
+    border: 1.5px solid rgba(96, 165, 250, 0.35);
+    border-radius: 16px;
+    padding: 36px;
+    margin-top: auto;
+  }
+  .repo-label {
+    font-size: 18px;
+    color: #64748b;
+    margin-bottom: 10px;
+  }
+  .repo-url {
+    font-size: 30px;
+    font-weight: 700;
+    color: #60a5fa;
+    font-family: "SF Mono", Consolas, monospace;
+    word-break: break-all;
+  }
+  .cta {
+    margin-top: 32px;
+    font-size: 22px;
+    color: #94a3b8;
+    line-height: 1.7;
+  }
+</style>
+</head>
+<body>
+  <div class="eyebrow">开源 · 可复现 · 可验证</div>
+  <h1>结论不是"VLM 不行"<br>是任务设计要改</h1>
+
+  <div class="checklist">
+    <div class="check-item"><span class="check-icon">✓</span>MIT 协议开源</div>
+    <div class="check-item"><span class="check-icon">✓</span>49 个单元测试全部通过</div>
+    <div class="check-item"><span class="check-icon">✓</span>CI 覆盖每一次代码提交</div>
+    <div class="check-item"><span class="check-icon">✓</span>39 对真实截图数据集,附完整评测脚本</div>
+    <div class="check-item"><span class="check-icon">✓</span>独立评判模型机制,避免自我偏好偏差</div>
+  </div>
+
+  <div class="repo-box">
+    <div class="repo-label">项目地址</div>
+    <div class="repo-url">github.com/shidesheng0218/vlm-diff</div>
+    <div class="cta">如果你的视觉回归工具被抗锯齿噪声反复误报困扰过,这里有完整的根因分析和一个已验证有效的解法。</div>
+  </div>
+</body>
+</html>

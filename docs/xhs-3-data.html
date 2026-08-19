@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    width: 1080px;
+    height: 1440px;
+    background: #0a0e1a;
+    color: #e8eaf0;
+    padding: 80px 64px;
+  }
+  h1 {
+    font-size: 42px;
+    font-weight: 800;
+    color: #ffffff;
+    margin-bottom: 12px;
+  }
+  .subtitle {
+    font-size: 22px;
+    color: #64748b;
+    margin-bottom: 40px;
+    line-height: 1.6;
+  }
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    padding: 22px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+  }
+  .row-label {
+    width: 260px;
+    font-size: 21px;
+    color: #cbd5e1;
+    font-weight: 600;
+    line-height: 1.4;
+  }
+  .row-label .sub {
+    display: block;
+    font-size: 15px;
+    color: #64748b;
+    font-weight: 400;
+    margin-top: 2px;
+  }
+  .bars {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .bar-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .bar-name {
+    width: 90px;
+    font-size: 15px;
+    color: #94a3b8;
+  }
+  .bar-track {
+    flex: 1;
+    height: 20px;
+    background: rgba(255,255,255,0.06);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .bar-fill { height: 100%; border-radius: 4px; }
+  .bar-fill.raw { background: #f87171; }
+  .bar-fill.full { background: #34d399; }
+  .bar-value {
+    width: 70px;
+    font-size: 16px;
+    font-weight: 700;
+    text-align: right;
+  }
+  .status {
+    display: inline-block;
+    font-size: 14px;
+    font-weight: 700;
+    padding: 3px 10px;
+    border-radius: 5px;
+    margin-top: 12px;
+  }
+  .confirmed { background: rgba(52,211,153,0.15); color: #34d399; border: 1px solid rgba(52,211,153,0.3); }
+  .predicted { background: rgba(245,158,11,0.15); color: #f59e0b; border: 1px solid rgba(245,158,11,0.3); }
+  .legend {
+    display: flex;
+    gap: 30px;
+    margin-top: 44px;
+    font-size: 18px;
+    color: #94a3b8;
+  }
+  .dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; margin-right: 8px; }
+  .footer-note {
+    margin-top: 50px;
+    padding: 24px;
+    background: rgba(245, 158, 11, 0.06);
+    border-left: 3px solid #f59e0b;
+    border-radius: 8px;
+    font-size: 18px;
+    line-height: 1.7;
+    color: #fcd9a3;
+  }
+</style>
+</head>
+<body>
+  <h1>数据分级:实测 vs 预测</h1>
+  <p class="subtitle">不把预测值包装成实测结果</p>
+
+  <div class="row">
+    <div class="row-label">召回率<span class="sub">检测到的 / 真实变化</span></div>
+    <div class="bars">
+      <div class="bar-item"><span class="bar-name">拼图直问</span><div class="bar-track"><div class="bar-fill raw" style="width:72%"></div></div><span class="bar-value" style="color:#f87171">70-75%</span></div>
+      <div class="bar-item"><span class="bar-name">本方案</span><div class="bar-track"><div class="bar-fill full" style="width:92%"></div></div><span class="bar-value" style="color:#34d399">92%</span></div>
+    </div>
+  </div>
+  <div class="status confirmed">✓ 已用真实数据验证</div>
+
+  <div class="row" style="margin-top:8px;">
+    <div class="row-label">无变化误报率<span class="sub">抗锯齿/渲染噪声</span></div>
+    <div class="bars">
+      <div class="bar-item"><span class="bar-name">拼图直问</span><div class="bar-track"><div class="bar-fill raw" style="width:22%"></div></div><span class="bar-value" style="color:#f87171">15-25%</span></div>
+      <div class="bar-item"><span class="bar-name">本方案</span><div class="bar-track"><div class="bar-fill full" style="width:2%"></div></div><span class="bar-value" style="color:#34d399">0%</span></div>
+    </div>
+  </div>
+  <div class="status confirmed">✓ 已用真实数据验证</div>
+
+  <div class="row" style="margin-top:8px;">
+    <div class="row-label">分类准确率<span class="sub">变化类型判断</span></div>
+    <div class="bars">
+      <div class="bar-item"><span class="bar-name">拼图直问</span><div class="bar-track"><div class="bar-fill raw" style="width:60%"></div></div><span class="bar-value" style="color:#f87171">55-65%</span></div>
+      <div class="bar-item"><span class="bar-name">本方案</span><div class="bar-track"><div class="bar-fill full" style="width:78%"></div></div><span class="bar-value" style="color:#34d399">75-82%</span></div>
+    </div>
+  </div>
+  <div class="status predicted">⚠ 基于架构分析的预测值</div>
+
+  <div class="row" style="margin-top:8px; border-bottom:none;">
+    <div class="row-label">平均输入 Token<span class="sub">单对截图</span></div>
+    <div class="bars">
+      <div class="bar-item"><span class="bar-name">拼图直问</span><div class="bar-track"><div class="bar-fill raw" style="width:100%"></div></div><span class="bar-value" style="color:#f87171">~2500</span></div>
+      <div class="bar-item"><span class="bar-name">本方案</span><div class="bar-track"><div class="bar-fill full" style="width:32%"></div></div><span class="bar-value" style="color:#34d399">~800</span></div>
+    </div>
+  </div>
+  <div class="status predicted">⚠ 基于架构分析的预测值</div>
+
+  <div class="footer-note">
+    确定性检测层(召回/误报率)已在 39 对真实截图上验证。完整 VLM 分类的准确率数字尚需真实 API 调用验证,项目文档中明确分开标注 —— 这也是这次分享想强调的态度问题。
+  </div>
+</body>
+</html>

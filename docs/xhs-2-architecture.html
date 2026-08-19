@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    width: 1080px;
+    height: 1440px;
+    background: #0a0e1a;
+    color: #e8eaf0;
+    padding: 80px 64px;
+  }
+  h1 {
+    font-size: 42px;
+    font-weight: 800;
+    color: #ffffff;
+    margin-bottom: 12px;
+  }
+  .subtitle {
+    font-size: 22px;
+    color: #64748b;
+    margin-bottom: 50px;
+  }
+  .stage {
+    border-radius: 14px;
+    padding: 32px;
+    margin-bottom: 24px;
+    position: relative;
+  }
+  .stage-1 {
+    background: rgba(59, 130, 246, 0.08);
+    border: 1.5px solid rgba(59, 130, 246, 0.35);
+  }
+  .stage-2 {
+    background: rgba(245, 158, 11, 0.08);
+    border: 1.5px solid rgba(245, 158, 11, 0.35);
+  }
+  .stage-title {
+    font-size: 26px;
+    font-weight: 700;
+    color: #ffffff;
+    margin-bottom: 18px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .badge {
+    font-size: 16px;
+    font-weight: 700;
+    padding: 4px 12px;
+    border-radius: 6px;
+  }
+  .badge-blue { background: #3b82f6; color: white; }
+  .badge-amber { background: #f59e0b; color: #1a1200; }
+  .two-col {
+    display: flex;
+    gap: 16px;
+    margin-bottom: 16px;
+  }
+  .col-box {
+    flex: 1;
+    background: rgba(255,255,255,0.04);
+    border-radius: 10px;
+    padding: 18px;
+    font-size: 19px;
+    line-height: 1.7;
+    color: #cbd5e1;
+  }
+  .col-box strong { color: #ffffff; display: block; margin-bottom: 6px; font-size: 20px; }
+  .fusion {
+    background: rgba(52, 211, 153, 0.1);
+    border: 1px solid rgba(52, 211, 153, 0.3);
+    border-radius: 10px;
+    padding: 18px;
+    font-size: 20px;
+    color: #d1fae5;
+    text-align: center;
+    line-height: 1.6;
+    font-weight: 600;
+  }
+  .arrow {
+    text-align: center;
+    font-size: 32px;
+    color: #475569;
+    margin: 8px 0;
+  }
+  .metric-row {
+    display: flex;
+    gap: 12px;
+    margin-top: 18px;
+  }
+  .metric {
+    flex: 1;
+    background: rgba(0,0,0,0.25);
+    border-radius: 8px;
+    padding: 14px 16px;
+    text-align: center;
+  }
+  .metric-val {
+    font-size: 28px;
+    font-weight: 800;
+    color: #34d399;
+  }
+  .metric-lbl {
+    font-size: 15px;
+    color: #94a3b8;
+    margin-top: 4px;
+  }
+  .vlm-flow {
+    text-align: center;
+    font-size: 20px;
+    color: #cbd5e1;
+    margin: 14px 0;
+    padding: 16px;
+    background: rgba(255,255,255,0.04);
+    border-radius: 10px;
+  }
+</style>
+</head>
+<body>
+  <h1>架构:把"定位"和"分类"拆开</h1>
+  <p class="subtitle">VLM 只做它擅长的事</p>
+
+  <div class="stage stage-1">
+    <div class="stage-title"><span class="badge badge-blue">Stage 1</span>确定性检测</div>
+    <div class="two-col">
+      <div class="col-box">
+        <strong>DOM Diff</strong>
+        元素增删 · 位置尺寸<br>文本样式 · 1px 容差
+      </div>
+      <div class="col-box">
+        <strong>像素感知 Diff</strong>
+        pixelmatch + SSIM<br>Flood-fill 区域聚合
+      </div>
+    </div>
+    <div class="fusion">融合规则:DOM 没变 → 直接判定无变化<br>(消灭抗锯齿/渲染抖动误报)</div>
+    <div class="metric-row">
+      <div class="metric"><div class="metric-val">36/36</div><div class="metric-lbl">真实变化召回</div></div>
+      <div class="metric"><div class="metric-val">0/3</div><div class="metric-lbl">无变化误报</div></div>
+      <div class="metric"><div class="metric-val">0</div><div class="metric-lbl">Token 成本</div></div>
+    </div>
+  </div>
+
+  <div class="arrow">↓ 检测到变化才进入下一步</div>
+
+  <div class="stage stage-2">
+    <div class="stage-title"><span class="badge badge-amber">Stage 2</span>VLM 分类</div>
+    <div class="vlm-flow">裁剪变化区域(16px padding)→ 只做分类,不做搜索</div>
+    <div class="vlm-flow">Claude Opus 4.8 / GPT-5<br>输出:JSON Schema(类型 + 描述 + 置信度)</div>
+  </div>
+</body>
+</html>

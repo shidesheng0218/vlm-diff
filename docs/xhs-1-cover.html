@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    width: 1080px;
+    height: 1440px;
+    background: #0a0e1a;
+    color: #e8eaf0;
+    position: relative;
+    overflow: hidden;
+  }
+  .grid-bg {
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(59, 130, 246, 0.06) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(59, 130, 246, 0.06) 1px, transparent 1px);
+    background-size: 40px 40px;
+  }
+  .content {
+    position: relative;
+    z-index: 1;
+    padding: 90px 70px;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+  }
+  .tag {
+    display: inline-block;
+    background: rgba(59, 130, 246, 0.15);
+    border: 1px solid rgba(59, 130, 246, 0.4);
+    color: #60a5fa;
+    padding: 8px 20px;
+    border-radius: 6px;
+    font-size: 22px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    width: fit-content;
+    margin-bottom: 48px;
+  }
+  h1 {
+    font-size: 58px;
+    font-weight: 800;
+    line-height: 1.35;
+    color: #ffffff;
+    margin-bottom: 20px;
+  }
+  .accent { color: #f59e0b; }
+  .subtitle {
+    font-size: 28px;
+    color: #94a3b8;
+    line-height: 1.6;
+    margin-bottom: 60px;
+    font-weight: 400;
+  }
+  .stat-row {
+    display: flex;
+    gap: 24px;
+    margin-top: auto;
+    margin-bottom: 40px;
+  }
+  .stat-card {
+    flex: 1;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    padding: 28px 24px;
+  }
+  .stat-value {
+    font-size: 46px;
+    font-weight: 800;
+    margin-bottom: 8px;
+    font-family: -apple-system, monospace;
+  }
+  .stat-value.red { color: #f87171; }
+  .stat-value.green { color: #34d399; }
+  .stat-label {
+    font-size: 20px;
+    color: #94a3b8;
+    line-height: 1.4;
+  }
+  .source {
+    font-size: 20px;
+    color: #64748b;
+    border-top: 1px solid rgba(255,255,255,0.1);
+    padding-top: 24px;
+  }
+</style>
+</head>
+<body>
+<div class="grid-bg"></div>
+<div class="content">
+  <div class="tag">硬核验证 · 开源项目</div>
+  <h1>GPT-5-thinking 检测<br>UI 变化仅 <span class="accent">77.8%</span><br>准确率</h1>
+  <p class="subtitle">人类基线 95.5%<br>我们验证了一个架构级修复方案</p>
+
+  <div class="stat-row">
+    <div class="stat-card">
+      <div class="stat-value red">59.9%</div>
+      <div class="stat-label">最强模型在空间位移检测上的准确率(人类 95%)</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value green">36/36</div>
+      <div class="stat-label">新方案在真实数据上的检测召回(已验证)</div>
+    </div>
+  </div>
+
+  <div class="source">数据来源:VLM-SubtleBench (2026.03) · arXiv:2603.07888</div>
+</div>
+</body>
+</html>
