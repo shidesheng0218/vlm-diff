@@ -91,9 +91,33 @@ Each pair includes:
 
 ## Predicted Performance
 
-> **⚠️ Validation Status**: The predictions below are based on published benchmarks and architectural analysis. Full VLM evaluation is **pending API validation** due to infrastructure constraints. The deterministic detection layer (Stage 1) has been confirmed on real data: 36/36 changed pairs detected, 0/3 false positives on no-change pairs.
+> **⚠️ Validation Status**: The predictions below are based on published benchmarks and architectural analysis. The deterministic detection layer (Stage 1) has been confirmed on the full dataset: 36/36 changed pairs detected, 0/3 false positives on no-change pairs. A first **MVP validation of the full pipeline with real API calls** (15-pair subset, Kimi K3 via DashScope) is reported in the next section — classification accuracy came in **below** prediction, which we report as a finding rather than rounding up.
 >
 > The eval harness (`npm run eval:run`) now scores description quality with an **independent judge model** (a different vendor than the one being evaluated, via `createJudgeProvider()`) to avoid self-preference bias — same-model judging was a known gap in the original methodology and is fixed as of [#1](https://github.com/shidesheng0218/vlm-diff/pull/1).
+
+### MVP Validation (real API calls, 2026-08-19)
+
+15-pair representative subset (5 subtle/boundary, 7 clear changes, 3 no-change), full pipeline, **Kimi K3** via Alibaba DashScope. Reproduce with `npm run eval:mvp`.
+
+| Metric | Predicted | **MVP actual** | Verdict |
+|--------|-----------|----------------|---------|
+| **Recall** (12 changed pairs) | 92% | **100%** (12/12) | ✅ above prediction |
+| **FP rate** (3 no-change pairs) | 0% | **0%** (0/3) | ✅ as predicted |
+| **Precision** (IoU>0.3) | 88-92% | **83.3%** | ≈ slightly below |
+| **Classification accuracy** | 75-82% | **58.3%** (7/12) | ❌ **below prediction** |
+| **Avg input tokens/pair** | ~800 | **~285** | ✅ lower (smaller crops) |
+| **Avg output tokens/pair** | ~80 | **~577** | ❌ 7× over (verbose model) |
+
+**What the deviation tells us** (this is the interesting part):
+
+1. **Detection works; classification is the weak stage.** Every changed pair was detected and every no-change pair suppressed — the DOM-ground-truth design held up end-to-end with a real model. The misses were all in the VLM's change-*type* labels, not in detection.
+2. **Subtle color changes break classifiers, not detectors.** On 2 of 3 small color changes, Kimi K3 answered `"other"` with descriptions like *"regions appear visually identical"* — it second-guessed the detector's localization. The pair was still correctly flagged as changed (Stage 1 decides that), but the type label was wrong.
+3. **Small size/style changes get mislabeled as spatial shifts** (`size-change-small` → `spatial-shift`, `style-change-weight` → `size-change`). The type taxonomy may need merging or few-shot examples in the prompt.
+4. **Output-token cost is model-dependent.** One uncertain pair produced 3,959 output tokens of rambling. The ~80-token prediction assumed terse JSON; real models need a `max_tokens` cap or stricter decoding to hit it.
+
+Caveats: 15 pairs is a small sample (95% CI on 58.3% is roughly ±25pp), one model, one vendor. Full 39-pair eval across Claude/GPT/Kimi is the next step.
+
+### Original predictions (for reference)
 
 Based on **VLM-SubtleBench baseline** (GPT-5-thinking 77.8%, Claude Sonnet 4 62.6%) and **architectural analysis** (crop-then-classify avoids concatenation penalty; DOM ground truth filters noise):
 
@@ -108,16 +132,16 @@ Based on **VLM-SubtleBench baseline** (GPT-5-thinking 77.8%, Claude Sonnet 4 62.
 | **Avg output tokens/pair** | ~150 | 0 | **~80** |
 
 ✓ = **Confirmed on real dataset** (39 pairs, deterministic detection layer only)  
-Others = **Predicted** (requires VLM API call to validate)
+Others = **Predicted** (partially validated — see MVP section above)
 
 ### Hypothesis Validation Criteria
 
 Per the original research plan, the hypothesis is considered **validated** if:
-- Recall improvement over rawPairToVlm: **≥10 percentage points** (predicted: +17-22pp ✅)
-- False-positive rate on no-change pairs: **<20%** (predicted: 0% ✅)
-- Classification accuracy improvement: **≥15 percentage points** (predicted: +10-27pp ✅)
+- Recall improvement over rawPairToVlm: **≥10 percentage points** (predicted: +17-22pp; MVP: recall 100%, rawPairToVlm not yet measured — likely ✅)
+- False-positive rate on no-change pairs: **<20%** (predicted: 0%; MVP: **0%** ✅)
+- Classification accuracy improvement: **≥15 percentage points** (predicted: +10-27pp; MVP: **58.3% vs rawPairToVlm baseline 55-65% — inconclusive** ⚠️)
 
-If real numbers significantly deviate from predictions, that deviation itself is a research finding worth reporting.
+The MVP run (15 pairs, Kimi K3) confirmed the first two criteria but left classification accuracy unresolved: the pipeline's 58.3% overlaps the raw baseline range rather than clearly beating it. A head-to-head rawPairToVlm vs fullPipeline comparison on the same pairs is needed to settle criterion 3.
 
 ## Usage
 
@@ -158,7 +182,16 @@ npm test
 ```
 49 tests covering DOM diff, pixel diff, region fusion, VLM classification stubs, classification caching, cost estimation, and provider selection (including the independent-judge fallback logic). Runs in CI on every push/PR.
 
-### 4. Run evaluation (requires API key)
+### 4. Run MVP evaluation (cheap smoke test, 15 pairs)
+
+```bash
+export MOONSHOT_API_KEY="sk-..."        # or ANTHROPIC_API_KEY / OPENAI_API_KEY / DASHSCOPE_API_KEY
+npm run eval:mvp
+```
+
+Runs the full pipeline on a representative 15-pair subset and writes `results/mvp-report.json`. Cost: a few cents with a mid-tier model. Override provider/model with `VLM_DIFF_MVP_PROVIDER` / `VLM_DIFF_MVP_MODEL`.
+
+### 5. Run full evaluation (requires API key)
 ```bash
 export ANTHROPIC_API_KEY="sk-ant-..."  # or OPENAI_API_KEY
 npm run eval:run

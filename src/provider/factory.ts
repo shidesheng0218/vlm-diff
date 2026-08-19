@@ -17,9 +17,14 @@ interface Preset {
 export const PRESETS: Record<string, Preset> = {
   anthropic: { label: "Anthropic (Claude)", protocol: "anthropic", keyEnv: "ANTHROPIC_API_KEY", defaultModel: "claude-sonnet-5" },
   openai: { label: "OpenAI", protocol: "openai", baseURL: "https://api.openai.com/v1", keyEnv: "OPENAI_API_KEY", defaultModel: "gpt-5" },
+  // Moonshot's API is OpenAI-compatible; any vision-capable Kimi model works.
+  // Override the model via MOONSHOT_MODEL if the exact ID differs.
+  moonshot: { label: "Moonshot (Kimi)", protocol: "openai", baseURL: "https://api.moonshot.cn/v1", keyEnv: "MOONSHOT_API_KEY", defaultModel: "kimi-k3" },
+  // Alibaba DashScope OpenAI-compatible mode; hosts third-party models incl. Kimi.
+  dashscope: { label: "Alibaba DashScope", protocol: "openai", baseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1", keyEnv: "DASHSCOPE_API_KEY", defaultModel: "kimi/kimi-k3" },
 };
 
-const DETECT_ORDER = ["anthropic", "openai"];
+const DETECT_ORDER = ["anthropic", "openai", "moonshot", "dashscope"];
 
 export interface ProviderChoice {
   provider?: string;
@@ -39,7 +44,7 @@ function instantiate(presetName: string, choice: ProviderChoice): Provider {
   const preset = PRESETS[presetName];
   const apiKey = choice.apiKey || process.env[preset.keyEnv];
   if (!apiKey) throw new Error(`${preset.label} selected but ${preset.keyEnv} is not set.`);
-  const model = choice.model || preset.defaultModel;
+  const model = choice.model || process.env[`${presetName.toUpperCase()}_MODEL`] || preset.defaultModel;
 
   if (preset.protocol === "anthropic") return new AnthropicProvider(apiKey, model);
   return new OpenAICompatProvider(presetName, apiKey, preset.baseURL!, model);
