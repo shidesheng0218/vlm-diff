@@ -10,7 +10,7 @@ import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { createProvider } from "../provider/factory.js";
-import { runFullPipeline } from "./baselines.js";
+import { runFullPipeline, runRawPairToVlm, type BaselineResult } from "./baselines.js";
 import { summarize } from "./metrics.js";
 import type { PairRecord } from "./types.js";
 
@@ -67,24 +67,37 @@ async function main() {
 
   console.log(`MVP eval: ${pairs.length} pairs, model=${provider.model}\n`);
 
-  const results = [];
-  for (const pair of pairs) {
-    process.stdout.write(`  ${pair.id} (${pair.kind})... `);
-    const r = await runFullPipeline(provider, pair, DATA_DIR);
-    results.push(r);
-    const status =
-      pair.kind === "none"
-        ? r.predictedChanged ? "FALSE POSITIVE ✗" : "ok (unchanged)"
-        : r.predictedChanged
-          ? `detected, type=${r.predictedChangeType}${r.predictedChangeType === pair.kind ? " ✓" : ` (expected ${pair.kind}) ✗`}`
-          : "MISSED ✗";
-    console.log(status);
+  async function runBaseline(
+    label: string,
+    run: (pair: PairRecord) => Promise<BaselineResult>,
+  ): Promise<BaselineResult[]> {
+    console.log(`--- ${label} ---`);
+    const results: BaselineResult[] = [];
+    for (const pair of pairs) {
+      process.stdout.write(`  ${pair.id} (${pair.kind})... `);
+      const r = await run(pair);
+      results.push(r);
+      const status =
+        pair.kind === "none"
+          ? r.predictedChanged ? "FALSE POSITIVE ✗" : "ok (unchanged)"
+          : r.predictedChanged
+            ? `detected, type=${r.predictedChangeType ?? "?"}${r.predictedChangeType === pair.kind ? " ✓" : ` (expected ${pair.kind}) ✗`}`
+            : "MISSED ✗";
+      console.log(status);
+    }
+    console.log();
+    return results;
   }
 
-  const summary = summarize(pairs, results);
+  const pipelineResults = await runBaseline("fullPipeline", (p) => runFullPipeline(provider, p, DATA_DIR));
+  const rawResults = await runBaseline("rawPairToVlm", (p) => runRawPairToVlm(provider, p, DATA_DIR));
 
-  const totalInput = results.reduce((s, r) => s + r.inputTokens, 0);
-  const totalOutput = results.reduce((s, r) => s + r.outputTokens, 0);
+  const summary = summarize(pairs, pipelineResults);
+  const rawSummary = summarize(pairs, rawResults);
+
+  const allResults = [...pipelineResults, ...rawResults];
+  const totalInput = allResults.reduce((s, r) => s + r.inputTokens, 0);
+  const totalOutput = allResults.reduce((s, r) => s + r.outputTokens, 0);
   const price = PRICE_PER_MTOK[provider.name] ?? { input: 0, output: 0 };
   const costUsd =
     (totalInput / 1_000_000) * price.input +
@@ -96,35 +109,44 @@ async function main() {
     model: provider.model,
     n: pairs.length,
     pairIds: MVP_IDS,
-    metrics: summary,
-    tokens: { totalInput, totalOutput, avgInput: summary.avgInputTokens, avgOutput: summary.avgOutputTokens },
+    baselines: {
+      fullPipeline: { metrics: summary, perPair: perPairDetail(pipelineResults) },
+      rawPairToVlm: { metrics: rawSummary, perPair: perPairDetail(rawResults) },
+    },
+    tokens: { totalInput, totalOutput },
     costUsd: Math.round(costUsd * 10000) / 10000,
-    // Per-pair detail for the README table
-    perPair: results.map((r) => ({
-      id: r.pairId,
-      predictedChanged: r.predictedChanged,
-      predictedChangeType: r.predictedChangeType ?? null,
-      description: r.description ?? null,
-      inputTokens: r.inputTokens,
-      outputTokens: r.outputTokens,
-    })),
   };
 
   await mkdir(RESULTS_DIR, { recursive: true });
   const outPath = join(RESULTS_DIR, "mvp-report.json");
   await writeFile(outPath, JSON.stringify(report, null, 2));
 
-  console.log("\n=== MVP Summary ===");
-  console.log(`Recall (changed pairs):     ${(summary.recall * 100).toFixed(1)}%`);
-  console.log(`FP rate (no-change pairs):  ${(summary.falsePositiveRateOnNoChange * 100).toFixed(1)}%`);
-  console.log(`Classification accuracy:    ${(summary.changeTypeAccuracy * 100).toFixed(1)}%`);
-  console.log(`Avg tokens/pair:            ${summary.avgInputTokens.toFixed(0)} in / ${summary.avgOutputTokens.toFixed(0)} out`);
+  console.log("=== MVP Summary (fullPipeline vs rawPairToVlm) ===");
+  console.log(`Recall:                    ${pct(summary.recall)} vs ${pct(rawSummary.recall)}`);
+  console.log(`FP rate (no-change):       ${pct(summary.falsePositiveRateOnNoChange)} vs ${pct(rawSummary.falsePositiveRateOnNoChange)}`);
+  console.log(`Classification accuracy:   ${pct(summary.changeTypeAccuracy)} vs ${pct(rawSummary.changeTypeAccuracy)}`);
+  console.log(`Avg tokens/pair:           ${summary.avgInputTokens.toFixed(0)}+${summary.avgOutputTokens.toFixed(0)} vs ${rawSummary.avgInputTokens.toFixed(0)}+${rawSummary.avgOutputTokens.toFixed(0)}`);
   if (price.input > 0) {
-    console.log(`Total cost:                 $${costUsd.toFixed(4)}`);
+    console.log(`Total cost:                $${costUsd.toFixed(4)}`);
   } else {
-    console.log(`Total cost:                 (no price table for ${provider.name} — ${totalInput} in / ${totalOutput} out tokens)`);
+    console.log(`Total tokens:              ${totalInput} in / ${totalOutput} out`);
   }
   console.log(`\nReport: ${outPath}`);
+}
+
+function pct(x: number): string {
+  return `${(x * 100).toFixed(1)}%`;
+}
+
+function perPairDetail(results: BaselineResult[]) {
+  return results.map((r) => ({
+    id: r.pairId,
+    predictedChanged: r.predictedChanged,
+    predictedChangeType: r.predictedChangeType ?? null,
+    description: r.description ?? null,
+    inputTokens: r.inputTokens,
+    outputTokens: r.outputTokens,
+  }));
 }
 
 main().catch((err) => {
