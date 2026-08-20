@@ -107,8 +107,21 @@ export async function generateHtmlReport(input: ReportInput, dataDir: string): P
           </div>
           <div class="pair-result">
             <div>changed: <strong>${r.predictedChanged}</strong></div>
-            ${r.predictedChangeType ? `<div>type: <strong>${escapeHtml(r.predictedChangeType)}</strong></div>` : ""}
-            ${r.description ? `<div>description: ${escapeHtml(r.description)}</div>` : ""}
+            ${
+              r.classifications && r.classifications.length > 0
+                ? `<div class="regions">${r.classifications
+                    .map(
+                      (c) => `
+                    <div class="region-row">
+                      <span class="region-type">${escapeHtml(c.changeType)}</span>
+                      <span class="region-desc">${escapeHtml(c.description)}</span>
+                      <span class="region-meta">${c.region.w}×${c.region.h} @(${c.region.x},${c.region.y}) · ${escapeHtml(c.source)} · conf ${c.confidence.toFixed(2)}${c.cached === true ? " · cache hit" : ""}</span>
+                    </div>`,
+                    )
+                    .join("")}</div>`
+                : `${r.predictedChangeType ? `<div>type: <strong>${escapeHtml(r.predictedChangeType)}</strong></div>` : ""}
+                   ${r.description ? `<div>description: ${escapeHtml(r.description)}</div>` : ""}`
+            }
             <div class="cost">tokens: ${r.inputTokens}in/${r.outputTokens}out · $${cost.toFixed(5)}</div>
           </div>
         </div>`;
@@ -139,6 +152,11 @@ export async function generateHtmlReport(input: ReportInput, dataDir: string): P
   .pair-images img { width: 100%; border-radius: 6px; display: block; }
   .pair-images figcaption { text-align: center; font-size: 11px; color: #888; margin-top: 2px; }
   .pair-result { font-size: 13px; line-height: 1.5; }
+  .regions { margin-top: 6px; display: flex; flex-direction: column; gap: 6px; }
+  .region-row { border-left: 3px solid #d1d5db; padding-left: 8px; }
+  .region-type { font-weight: 700; margin-right: 6px; }
+  .region-desc { color: #333; }
+  .region-meta { display: block; color: #888; font-size: 11px; }
   .cost { color: #888; font-size: 12px; margin-top: 4px; }
 </style>
 </head>

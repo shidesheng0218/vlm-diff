@@ -6,7 +6,7 @@
 import { readFile } from "node:fs/promises";
 import type { Provider } from "../provider/types.js";
 import { imageBlock, textBlock } from "../provider/types.js";
-import { detect, type DetectionResult } from "../detect/regions.js";
+import { detect, type CandidateRegion, type DetectionResult } from "../detect/regions.js";
 import { diffImages, groupRegions } from "../detect/perceptual-diff.js";
 import { classifyRegion, classifyRegionCached, cropRegion } from "../classify/vlm-classify.js";
 import type { ChangeKind, Classification, DomHint } from "../classify/vlm-classify.js";
@@ -15,13 +15,26 @@ import type { PairRecord } from "./types.js";
 // re-exported for callers that only need the record shape from this module
 export type { PairRecord };
 
+export interface RegionClassification {
+  region: { x: number; y: number; w: number; h: number };
+  source: CandidateRegion["source"];
+  changeType: ChangeKind;
+  description: string;
+  confidence: number;
+  usage: { inputTokens: number; outputTokens: number };
+  cached?: boolean;
+}
+
 export interface BaselineResult {
   pairId: string;
   baseline: "rawPairToVlm" | "pixelDiffOnly" | "fullPipeline";
   predictedChanged: boolean;
   predictedRegions: Array<{ x: number; y: number; w: number; h: number }>;
+  /** pair-level change type = the largest region's classification (scoring continuity) */
   predictedChangeType?: ChangeKind;
   description?: string;
+  /** per-region classifications, largest region first (fullPipeline only) */
+  classifications?: RegionClassification[];
   inputTokens: number;
   outputTokens: number;
   cached?: boolean;
@@ -91,13 +104,55 @@ export async function runPixelDiffOnly(pair: PairRecord, dataDir: string): Promi
   };
 }
 
+/** Upper bound on VLM calls per pair. Pathological pages can produce dozens
+ *  of DOM changes; classify the largest regions first and stop here. */
+export const MAX_REGIONS_TO_CLASSIFY = 8;
+
+/**
+ * Classify every detected region in parallel, largest first. Each region gets
+ * its own crop and (when available) its own DOM-field hint, so a pair with
+ * several changed elements produces one classification per element.
+ */
+export async function classifyDetectedRegions(
+  provider: Provider,
+  cache: CacheStore | undefined,
+  before: Buffer,
+  after: Buffer,
+  regions: CandidateRegion[],
+  useDomHint: boolean,
+  maxRegions: number = MAX_REGIONS_TO_CLASSIFY,
+): Promise<RegionClassification[]> {
+  const sorted = [...regions].sort((a, b) => b.w * b.h - a.w * a.h).slice(0, maxRegions);
+  return Promise.all(
+    sorted.map(async (region) => {
+      const hint: DomHint | undefined =
+        useDomHint && region.domChangedFields && region.domChangedFields.length > 0
+          ? { fields: region.domChangedFields, id: region.domId }
+          : undefined;
+      const c: Classification & { cached?: boolean } = cache
+        ? await classifyRegionCached(provider, cache, cropRegion(before, region), cropRegion(after, region), hint)
+        : await classifyRegion(provider, cropRegion(before, region), cropRegion(after, region), hint);
+      return {
+        region: { x: region.x, y: region.y, w: region.w, h: region.h },
+        source: region.source,
+        changeType: c.changeType,
+        description: c.description,
+        confidence: c.confidence,
+        usage: c.usage,
+        cached: c.cached,
+      };
+    }),
+  );
+}
+
 export async function runFullPipeline(
   provider: Provider,
   pair: PairRecord,
   dataDir: string,
   cache?: CacheStore,
-  /** pass the DOM diff's changedFields to the classifier as a text hint (default on) */
+  /** pass each region's DOM changedFields to the classifier as a text hint (default on) */
   useDomHint: boolean = true,
+  maxRegions: number = MAX_REGIONS_TO_CLASSIFY,
 ): Promise<BaselineResult> {
   const before = await readFile(`${dataDir}/${pair.before}`);
   const after = await readFile(`${dataDir}/${pair.after}`);
@@ -114,28 +169,38 @@ export async function runFullPipeline(
     };
   }
 
-  // Classify the largest candidate region (the prototype scores one
-  // classification per pair; multi-region pairs are out of scope here).
-  const primary = detection.regions.reduce((a, b) => (a.w * a.h > b.w * b.h ? a : b));
-  const beforeCrop = cropRegion(before, primary);
-  const afterCrop = cropRegion(after, primary);
-  const hint: DomHint | undefined =
-    useDomHint && primary.domChangedFields && primary.domChangedFields.length > 0
-      ? { fields: primary.domChangedFields, id: primary.domId }
-      : undefined;
-  const classification: Classification & { cached?: boolean } = cache
-    ? await classifyRegionCached(provider, cache, beforeCrop, afterCrop, hint)
-    : await classifyRegion(provider, beforeCrop, afterCrop, hint);
+  const classifications = await classifyDetectedRegions(
+    provider, cache, before, after, detection.regions, useDomHint, maxRegions,
+  );
+
+  if (classifications.length === 0) {
+    // regions were detected but the caller capped classification at zero
+    return {
+      pairId: pair.id,
+      baseline: "fullPipeline",
+      predictedChanged: true,
+      predictedRegions: detection.regions.map((r) => ({ x: r.x, y: r.y, w: r.w, h: r.h })),
+      classifications: [],
+      inputTokens: 0,
+      outputTokens: 0,
+    };
+  }
+
+  // Pair-level type/description come from the largest region, keeping MVP
+  // scoring comparable across runs; per-region detail rides along in
+  // `classifications`.
+  const primary = classifications[0];
 
   return {
     pairId: pair.id,
     baseline: "fullPipeline",
     predictedChanged: true,
     predictedRegions: detection.regions.map((r) => ({ x: r.x, y: r.y, w: r.w, h: r.h })),
-    predictedChangeType: classification.changeType,
-    description: classification.description,
-    inputTokens: classification.usage.inputTokens,
-    outputTokens: classification.usage.outputTokens,
-    cached: classification.cached,
+    predictedChangeType: primary.changeType,
+    description: primary.description,
+    classifications,
+    inputTokens: classifications.reduce((s, c) => s + c.usage.inputTokens, 0),
+    outputTokens: classifications.reduce((s, c) => s + c.usage.outputTokens, 0),
+    cached: cache ? classifications.every((c) => c.cached === true) : undefined,
   };
 }

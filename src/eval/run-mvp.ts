@@ -77,11 +77,13 @@ async function main() {
       process.stdout.write(`  ${pair.id} (${pair.kind})... `);
       const r = await run(pair);
       results.push(r);
+      const nRegions = r.classifications?.length ?? 0;
+      const regionNote = nRegions > 1 ? ` [${nRegions} regions]` : "";
       const status =
         pair.kind === "none"
           ? r.predictedChanged ? "FALSE POSITIVE ✗" : "ok (unchanged)"
           : r.predictedChanged
-            ? `detected, type=${r.predictedChangeType ?? "?"}${r.predictedChangeType === pair.kind ? " ✓" : ` (expected ${pair.kind}) ✗`}`
+            ? `detected, type=${r.predictedChangeType ?? "?"}${r.predictedChangeType === pair.kind ? " ✓" : ` (expected ${pair.kind}) ✗`}${regionNote}`
             : "MISSED ✗";
       console.log(status);
     }
@@ -147,6 +149,15 @@ function perPairDetail(results: BaselineResult[]) {
     predictedChanged: r.predictedChanged,
     predictedChangeType: r.predictedChangeType ?? null,
     description: r.description ?? null,
+    regionsClassified: r.classifications?.length ?? 0,
+    classifications:
+      r.classifications?.map((c) => ({
+        region: c.region,
+        source: c.source,
+        changeType: c.changeType,
+        description: c.description,
+        confidence: c.confidence,
+      })) ?? [],
     inputTokens: r.inputTokens,
     outputTokens: r.outputTokens,
   }));
