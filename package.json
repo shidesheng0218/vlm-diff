@@ -7,7 +7,7 @@
   "scripts": {
     "build": "tsc",
     "test": "tsc && node --test dist/**/*.test.js",
-    "postbuild": "cp -r src/dataset/fixtures dist/dataset/fixtures",
+    "postbuild": "mkdir -p dist/dataset && cp -r src/dataset/fixtures dist/dataset/",
     "dataset:gen": "npm run build && node dist/dataset/generate.js",
     "eval:run": "npm run build && node dist/eval/run.js",
     "eval:mvp": "npm run build && node dist/eval/run-mvp.js",

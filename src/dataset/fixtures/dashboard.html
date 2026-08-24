@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+  body { font-family: -apple-system, sans-serif; background: #f9fafb; margin: 0; padding: 32px; }
+  .cards { display: flex; gap: 16px; max-width: 900px; margin-bottom: 24px; }
+  .stat { flex: 1; background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 16px; }
+  .stat .label { font-size: 12px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.04em; }
+  .stat .value { font-size: 28px; font-weight: 700; color: #111827; margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .stat .delta { font-size: 12px; margin-top: 4px; font-weight: 600; }
+  .delta.up { color: #16a34a; }
+  .delta.down { color: #dc2626; }
+  .chart { background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 16px; max-width: 868px; }
+  .chart h3 { margin: 0 0 12px; font-size: 13px; color: #374151; }
+  .bars { display: flex; align-items: flex-end; gap: 8px; height: 120px; }
+  .bar { flex: 1; background: #93c5fd; border-radius: 3px 3px 0 0; }
+</style>
+</head>
+<body>
+  <div class="cards" id="cards">
+    <div class="stat" id="stat-1">
+      <div class="label">Revenue</div>
+      <div class="value" id="rev-value">$48,210</div>
+      <div class="delta up" id="rev-delta">+12.4%</div>
+    </div>
+    <div class="stat" id="stat-2">
+      <div class="label">Active users</div>
+      <div class="value" id="users-value">3,912</div>
+      <div class="delta up" id="users-delta">+3.1%</div>
+    </div>
+    <div class="stat" id="stat-3">
+      <div class="label">Error rate</div>
+      <div class="value" id="err-value">0.42%</div>
+      <div class="delta down" id="err-delta">-0.08%</div>
+    </div>
+  </div>
+  <div class="chart" id="chart">
+    <h3>Requests per hour</h3>
+    <div class="bars" id="bars">
+      <div class="bar" style="height: 40%"></div>
+      <div class="bar" style="height: 65%"></div>
+      <div class="bar" style="height: 52%"></div>
+      <div class="bar" style="height: 78%"></div>
+      <div class="bar" style="height: 61%"></div>
+      <div class="bar" style="height: 88%"></div>
+      <div class="bar" style="height: 70%"></div>
+      <div class="bar" style="height: 95%"></div>
+      <div class="bar" style="height: 56%"></div>
+      <div class="bar" style="height: 74%"></div>
+      <div class="bar" style="height: 47%"></div>
+      <div class="bar" style="height: 83%"></div>
+    </div>
+  </div>
+</body>
+</html>

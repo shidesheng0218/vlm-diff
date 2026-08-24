@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+  body { font-family: -apple-system, sans-serif; background: #f9fafb; margin: 0; padding: 32px; }
+  .panel { background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; max-width: 900px; overflow: hidden; }
+  .panel-head { padding: 14px 20px; border-bottom: 1px solid #e5e7eb; display: flex; justify-content: space-between; align-items: center; }
+  .panel-head h2 { font-size: 15px; margin: 0; color: #111827; }
+  .btn { padding: 7px 14px; background: #2563eb; color: #fff; border: none; border-radius: 6px; font-size: 13px; cursor: pointer; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; padding: 10px 20px; background: #f3f4f6; color: #6b7280; font-weight: 600; font-size: 12px; text-transform: uppercase; }
+  td { padding: 10px 20px; border-top: 1px solid #f3f4f6; color: #374151; }
+  tr.alt { background: #fafafa; }
+  .num { text-align: right; font-variant-numeric: tabular-nums; }
+  .pill { display: inline-block; padding: 2px 9px; border-radius: 10px; font-size: 12px; font-weight: 600; }
+  .pill.ok { background: #dcfce7; color: #166534; }
+  .pill.warn { background: #fef3c7; color: #92400e; }
+  .pill.bad { background: #fee2e2; color: #991b1b; }
+</style>
+</head>
+<body>
+  <div class="panel" id="panel">
+    <div class="panel-head">
+      <h2>Deployments</h2>
+      <button class="btn" id="new-deploy">New deploy</button>
+    </div>
+    <table id="deploys">
+      <thead>
+        <tr><th>Service</th><th>Version</th><th>Status</th><th class="num">Latency</th><th class="num">Errors</th></tr>
+      </thead>
+      <tbody id="deploy-rows">
+        <tr id="row-1"><td class="svc">billing</td><td class="ver">v2.14.0</td><td><span class="pill ok">healthy</span></td><td class="num lat">84ms</td><td class="num err">0</td></tr>
+        <tr id="row-2" class="alt"><td class="svc">checkout</td><td class="ver">v1.9.3</td><td><span class="pill warn">degraded</span></td><td class="num lat">412ms</td><td class="num err">17</td></tr>
+        <tr id="row-3"><td class="svc">search</td><td class="ver">v3.2.1</td><td><span class="pill ok">healthy</span></td><td class="num lat">61ms</td><td class="num err">2</td></tr>
+        <tr id="row-4" class="alt"><td class="svc">auth</td><td class="ver">v4.0.0</td><td><span class="pill bad">down</span></td><td class="num lat">—</td><td class="num err">208</td></tr>
+        <tr id="row-5"><td class="svc">notify</td><td class="ver">v1.4.2</td><td><span class="pill ok">healthy</span></td><td class="num lat">95ms</td><td class="num err">1</td></tr>
+      </tbody>
+    </table>
+  </div>
+</body>
+</html>

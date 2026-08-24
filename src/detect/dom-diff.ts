@@ -9,7 +9,15 @@ export interface DomNode {
   className: string;
   text: string;
   rect: { x: number; y: number; w: number; h: number };
-  style: { color: string; backgroundColor: string; fontWeight: string; borderRadius: string };
+  style: {
+    color: string;
+    backgroundColor: string;
+    fontWeight: string;
+    borderRadius: string;
+    opacity: string;
+    boxShadow: string;
+    border: string;
+  };
 }
 
 export interface RectDelta {
@@ -84,6 +92,9 @@ export function diffDom(before: DomNode[], after: DomNode[]): DomChange[] {
     if (b.style.backgroundColor !== a.style.backgroundColor) changedFields.push("backgroundColor");
     if (b.style.fontWeight !== a.style.fontWeight) changedFields.push("fontWeight");
     if (b.style.borderRadius !== a.style.borderRadius) changedFields.push("borderRadius");
+    if (b.style.opacity !== a.style.opacity) changedFields.push("opacity");
+    if (b.style.boxShadow !== a.style.boxShadow) changedFields.push("boxShadow");
+    if (b.style.border !== a.style.border) changedFields.push("border");
 
     if (changedFields.length > 0) {
       changes.push({ path, id: a.id, rect: a.rect, changedFields, ...(rectDelta ? { rectDelta } : {}) });

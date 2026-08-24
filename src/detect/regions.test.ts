@@ -24,7 +24,7 @@ function node(overrides: Partial<DomNode> = {}): DomNode {
     className: "",
     text: "",
     rect: { x: 10, y: 10, w: 20, h: 15 },
-    style: { color: "rgb(0,0,0)", backgroundColor: "rgb(255,255,255)", fontWeight: "400", borderRadius: "0px" },
+    style: { color: "rgb(0,0,0)", backgroundColor: "rgb(255,255,255)", fontWeight: "400", borderRadius: "0px", opacity: "1", boxShadow: "none", border: "0px none rgb(0,0,0)" },
     ...overrides,
   };
 }
@@ -41,8 +41,8 @@ test("detect: no DOM change suppresses pixel noise (no-change pair)", () => {
 });
 
 test("detect: DOM change produces a candidate region even without pixel corroboration", () => {
-  const before = [node({ style: { color: "rgb(0,0,0)", backgroundColor: "rgb(255,255,255)", fontWeight: "400", borderRadius: "0px" } })];
-  const after = [node({ style: { color: "rgb(0,0,0)", backgroundColor: "rgb(220,38,38)", fontWeight: "400", borderRadius: "0px" } })];
+  const before = [node({})];
+  const after = [node({ style: { ...node().style, backgroundColor: "rgb(220,38,38)" } })];
   const beforePng = solidPng(60, 60, [255, 255, 255]);
   const afterPng = solidPng(60, 60, [255, 255, 255]); // pixel diff sees nothing (contrived)
   const result = detect(JSON.stringify(before), JSON.stringify(after), beforePng, afterPng);

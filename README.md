@@ -71,23 +71,25 @@ graph TB
 
 ## Dataset
 
-**39 UI screenshot pairs** across 3 realistic fixtures (card grid, form, navbar) × 13 mutation types:
+**145 UI screenshot pairs** across 6 realistic fixtures (card grid, form, navbar, data table, modal dialog, dashboard) × 24 mutation types:
 
 | Mutation Category | Count | Example |
 |-------------------|-------|---------|
-| Spatial shift (5px, 28px) | 6 | Element moved right via `margin-left` |
-| Color change (subtle, high-contrast) | 6 | Button `#2563eb` → `#dc2626` |
-| Size change (±10%, ±35%) | 6 | Element scaled via CSS `transform` |
-| Text change (similar/different length) | 6 | "Project Falcon" → "Project Falcan" |
-| Element add/remove | 6 | Clone or delete a card from grid |
-| Style change (font-weight, border-radius) | 6 | Bold → normal, rounded → square |
-| **No-change** (render noise only) | 3 | Identical DOM, re-screenshot for AA jitter |
+| Spatial shift (3–28px, horizontal + vertical) | 29 | Element moved via `margin`/`transform` |
+| Color change (background, text, border) | 24 | Button `#2563eb` → `#dc2626`, th color, panel border |
+| Size change (scale 0.9×–1.35×) | 24 | Element scaled via CSS `transform` |
+| Text change (similar, different, shorten, numeric) | 22 | "Project Falcon" → "Project Falcan", "$48,210" → "$52,980" |
+| Element add / remove (last, first) | 18 | Clone or delete a card/row/button from a container |
+| Style change (font-weight, border-radius, box-shadow, opacity) | 22 | Bold → normal, rounded → square, opacity 1 → 0.5 |
+| **No-change** (render noise only) | 6 | Identical DOM, re-screenshot for AA jitter |
 
 Each pair includes:
 - `before.png` / `after.png` (960×500 screenshots)
-- `domBefore` / `domAfter` (JSON: element path, tag, rect, computed styles)
+- `domBefore` / `domAfter` (JSON: element path, tag, rect, computed styles — color, backgroundColor, fontWeight, borderRadius, opacity, boxShadow, border, transform)
 - `groundTruthRect` (bbox of the specific mutated element, for IoU scoring — for `element-add`/`element-remove` this is the inserted/deleted child itself, not the container)
 - `kind` / `description` (mutation category and natural-language ground truth)
+
+The detection layer is exercised over the full dataset on every `dataset:gen`: **139/139 changed pairs detected, 0/6 false positives** (the no-change suppression rule holds on all 6 fixtures).
 
 ## Predicted Performance
 
@@ -138,7 +140,7 @@ Based on **VLM-SubtleBench baseline** (GPT-5-thinking 77.8%, Claude Sonnet 4 62.
 | **Avg input tokens/pair** | ~2500 | 0 | **~800** |
 | **Avg output tokens/pair** | ~150 | 0 | **~80** |
 
-✓ = **Confirmed on real dataset** (39 pairs, deterministic detection layer only)  
+✓ = **Confirmed on real dataset** (145 pairs, deterministic detection layer only)  
 Others = **Predicted** (partially validated — see MVP section above)
 
 ### Hypothesis Validation Criteria
@@ -181,7 +183,7 @@ npm install
 ```bash
 npm run dataset:gen
 ```
-Outputs `data/dataset.json` (39 pairs) + `data/images/*.png`
+Outputs `data/dataset.json` (145 pairs) + `data/images/*.png`
 
 ### 3. Run unit tests (no API calls)
 ```bash
@@ -205,7 +207,7 @@ npm run eval:run
 ```
 
 This will:
-1. Run all three baselines on 39 pairs (~117 VLM calls)
+1. Run all three baselines on 145 pairs (~435 VLM calls)
 2. Compute metrics (recall, precision, FP rate, classification accuracy)
 3. Judge description quality via LLM-as-judge
 4. Write `results/report.json` **and** a self-contained `results/report.html` with inline before/after thumbnails, detected regions, and per-pair cost
@@ -342,17 +344,17 @@ Could be composed: DiffShot decides *what* to test, this prototype detects *how*
 
 ### Known Issues
 
-1. **Mutation coverage is shallow**: 13 mutation types, all CSS/DOM-level. Real regressions include:
+1. **Mutation coverage is CSS/DOM-level only**: 24 mutation types, but real regressions also include:
    - Image content swaps (same `<img>` tag, different `src`)
    - SVG/canvas repaints
    - Third-party widget breakage (ads, chat, maps)
 
-2. **No-change sample size is small**: only 3 of 39 pairs are "no-change" (8%), so the reported 0% false-positive rate is based on a tiny denominator. A larger no-change sample would make that number statistically meaningful rather than anecdotal.
+2. **No-change sample is still small**: 6 of 145 pairs are "no-change" (4%), so the reported 0% false-positive rate has a small denominator (95% CI upper bound ≈ 39%). More no-change pairs — and no-change pairs on *real* pages with live widgets — would make that number meaningful rather than anecdotal.
 
-3. **Fixture count is small**: 3 pages (card list, form, navbar). Doesn't cover:
-   - Tables with 100+ rows
-   - Modal overlays / z-index complexity
+3. **Fixtures are synthetic**: 6 hand-built pages (card list, form, navbar, table, modal, dashboard). Doesn't cover:
+   - Tables with 100+ rows / virtualization
    - Responsive breakpoints (mobile vs desktop)
+   - Real production pages with ads, timestamps, A/B buckets
 
 4. **No multi-browser validation**: Playwright on Chromium only. Firefox/Safari font rendering differs, affecting pixel diff.
 

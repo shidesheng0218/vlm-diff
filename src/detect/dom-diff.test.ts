@@ -10,7 +10,7 @@ function node(overrides: Partial<DomNode> = {}): DomNode {
     className: "",
     text: "",
     rect: { x: 0, y: 0, w: 100, h: 20 },
-    style: { color: "rgb(0,0,0)", backgroundColor: "rgb(255,255,255)", fontWeight: "400", borderRadius: "0px" },
+    style: { color: "rgb(0,0,0)", backgroundColor: "rgb(255,255,255)", fontWeight: "400", borderRadius: "0px", opacity: "1", boxShadow: "none", border: "0px none rgb(0,0,0)" },
     ...overrides,
   };
 }
@@ -61,8 +61,8 @@ test("diffDom: text change is reported", () => {
 });
 
 test("diffDom: color change is reported", () => {
-  const a = [node({ style: { color: "rgb(0,0,0)", backgroundColor: "rgb(255,255,255)", fontWeight: "400", borderRadius: "0px" } })];
-  const b = [node({ style: { color: "rgb(0,0,0)", backgroundColor: "rgb(220,38,38)", fontWeight: "400", borderRadius: "0px" } })];
+  const a = [node({})];
+  const b = [node({ style: { ...node().style, backgroundColor: "rgb(220,38,38)" } })];
   const changes = diffDom(a, b);
   assert.deepEqual(changes[0].changedFields, ["backgroundColor"]);
 });
