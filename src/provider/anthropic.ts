@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { ContentBlock, Msg, Provider, TurnResult } from "./types.js";
+import { withRetry } from "./retry.js";
 
 export class AnthropicProvider implements Provider {
   readonly name = "anthropic";
@@ -9,16 +10,18 @@ export class AnthropicProvider implements Provider {
   constructor(apiKey: string, model: string, baseURL?: string) {
     this.model = model;
     const url = baseURL || process.env.ANTHROPIC_BASE_URL;
-    this.client = new Anthropic({ apiKey, ...(url ? { baseURL: url } : {}) });
+    this.client = new Anthropic({ apiKey, maxRetries: 0, ...(url ? { baseURL: url } : {}) });
   }
 
   async send(system: string, messages: Msg[]): Promise<TurnResult> {
-    const resp = await this.client.messages.create({
-      model: this.model,
-      max_tokens: 2048,
-      system,
-      messages: messages.map(toAnthropic),
-    });
+    const resp = await withRetry(() =>
+      this.client.messages.create({
+        model: this.model,
+        max_tokens: 2048,
+        system,
+        messages: messages.map(toAnthropic),
+      }),
+    );
 
     let text = "";
     for (const block of resp.content) {

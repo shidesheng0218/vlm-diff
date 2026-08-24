@@ -71,3 +71,32 @@ test("detect: DOM change corroborated by pixel diff is marked dom+pixel", () => 
   assert.equal(result.changed, true);
   assert.ok(result.regions.some((r) => r.source === "dom+pixel"));
 });
+
+test("detect: rect changes carry position/size fields and the signed delta", () => {
+  const before = [node({ rect: { x: 10, y: 10, w: 20, h: 15 } })];
+  const after = [node({ rect: { x: 10, y: 10, w: 26, h: 15 } })]; // grew wider only
+  const img = solidPng(60, 60, [255, 255, 255]);
+  const result = detect(JSON.stringify(before), JSON.stringify(after), img, img);
+  assert.equal(result.regions.length, 1);
+  assert.deepEqual(result.regions[0].domChangedFields, ["size"]);
+  assert.deepEqual(result.regions[0].rectDelta, { dx: 0, dy: 0, dw: 6, dh: 0 });
+});
+
+test("detect: removed element region uses the replacement's after-rect and keeps the original as counterpart", () => {
+  // link-3 removed; link-2 (in after) sits where link-3 used to be
+  const before = [
+    node({ path: "A:0", id: "link-2", rect: { x: 10, y: 10, w: 20, h: 10 } }),
+    node({ path: "A:1", id: "link-3", rect: { x: 40, y: 10, w: 15, h: 10 } }),
+  ];
+  const after = [
+    node({ path: "A:0", id: "link-2", rect: { x: 35, y: 10, w: 20, h: 10 } }), // slid into link-3's area
+  ];
+  const img = solidPng(80, 40, [255, 255, 255]);
+  const result = detect(JSON.stringify(before), JSON.stringify(after), img, img);
+  const removed = result.regions.find((r) => r.domId === "link-3");
+  assert.ok(removed, "expected a region for the removed element");
+  assert.deepEqual(removed.domChangedFields, ["removed"]);
+  // region rect = the replacement's after-rect (link-2 at 35,10), not the vacated 40,10
+  assert.deepEqual({ x: removed.x, y: removed.y, w: removed.w, h: removed.h }, { x: 35, y: 10, w: 20, h: 10 });
+  assert.deepEqual(removed.counterpartRect, { x: 40, y: 10, w: 15, h: 10 });
+});

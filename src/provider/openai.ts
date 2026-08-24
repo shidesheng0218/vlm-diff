@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 import type { ContentBlock, Msg, Provider, TurnResult } from "./types.js";
+import { withRetry } from "./retry.js";
 
 export class OpenAICompatProvider implements Provider {
   readonly name: string;
@@ -9,14 +10,16 @@ export class OpenAICompatProvider implements Provider {
   constructor(name: string, apiKey: string, baseURL: string, model: string) {
     this.name = name;
     this.model = model;
-    this.client = new OpenAI({ apiKey, baseURL });
+    this.client = new OpenAI({ apiKey, baseURL, maxRetries: 0 });
   }
 
   async send(system: string, messages: Msg[]): Promise<TurnResult> {
-    const resp = await this.client.chat.completions.create({
-      model: this.model,
-      messages: [{ role: "system", content: system }, ...messages.map(toOpenAI)],
-    });
+    const resp = await withRetry(() =>
+      this.client.chat.completions.create({
+        model: this.model,
+        messages: [{ role: "system", content: system }, ...messages.map(toOpenAI)],
+      }),
+    );
 
     const text = resp.choices[0]?.message?.content ?? "";
     return {

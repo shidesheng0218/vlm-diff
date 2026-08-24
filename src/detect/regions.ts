@@ -11,7 +11,7 @@
 // visually significant but not captured by DOM diff (rare in this dataset,
 // but matters for generality — e.g. a canvas repaint).
 
-import { diffDom, parseSnapshot, type DomChange } from "./dom-diff.js";
+import { diffDom, parseSnapshot, type DomChange, type RectDelta } from "./dom-diff.js";
 import { diffImages, groupRegions, type PixelRegion } from "./perceptual-diff.js";
 
 export interface CandidateRegion {
@@ -22,6 +22,12 @@ export interface CandidateRegion {
   source: "dom" | "pixel" | "dom+pixel";
   domChangedFields?: string[];
   domId?: string;
+  /** positional path of the DOM node (ids can be empty) */
+  domPath?: string;
+  /** after − before rect delta, when the change includes a rect change */
+  rectDelta?: RectDelta;
+  /** for removed elements: the after-frame rect of the element that now occupies the vacated area */
+  counterpartRect?: { x: number; y: number; w: number; h: number };
 }
 
 export interface DetectionResult {
@@ -35,13 +41,21 @@ function rectsOverlap(a: { x: number; y: number; w: number; h: number }, b: { x:
   return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
 }
 
+function overlapArea(a: { x: number; y: number; w: number; h: number }, b: { x: number; y: number; w: number; h: number }): number {
+  const iw = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x);
+  const ih = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y);
+  return iw > 0 && ih > 0 ? iw * ih : 0;
+}
+
 export function detect(
   domBeforeJson: string,
   domAfterJson: string,
   beforePng: Buffer,
   afterPng: Buffer,
 ): DetectionResult {
-  const domChanges: DomChange[] = diffDom(parseSnapshot(domBeforeJson), parseSnapshot(domAfterJson));
+  const domBefore = parseSnapshot(domBeforeJson);
+  const domAfter = parseSnapshot(domAfterJson);
+  const domChanges: DomChange[] = diffDom(domBefore, domAfter);
   const { mask, width, height } = diffImages(beforePng, afterPng);
   const pixelRegions: PixelRegion[] = groupRegions(mask, width, height);
 
@@ -52,15 +66,27 @@ export function detect(
   }
 
   const regions: CandidateRegion[] = domChanges.map((dc) => {
-    const corroborated = pixelRegions.some((pr) => rectsOverlap(dc.rect, pr));
+    // Removed elements have no after-frame rect: use the rect of whatever now
+    // overlaps the vacated area, so the classifier sees the replacement
+    // (the cascade sibling that slid into place) rather than empty space.
+    const afterRect = dc.changedFields.includes("removed")
+      ? domAfter
+          .filter((n) => rectsOverlap(dc.rect, n.rect))
+          .sort((a, b) => overlapArea(dc.rect, b.rect) - overlapArea(dc.rect, a.rect))[0]?.rect
+      : undefined;
+    const rect = afterRect ?? dc.rect;
+    const corroborated = pixelRegions.some((pr) => rectsOverlap(rect, pr));
     return {
-      x: dc.rect.x,
-      y: dc.rect.y,
-      w: Math.max(dc.rect.w, 1),
-      h: Math.max(dc.rect.h, 1),
+      x: rect.x,
+      y: rect.y,
+      w: Math.max(rect.w, 1),
+      h: Math.max(rect.h, 1),
       source: corroborated ? "dom+pixel" : "dom",
       domChangedFields: dc.changedFields,
       domId: dc.id,
+      domPath: dc.path,
+      ...(dc.rectDelta ? { rectDelta: dc.rectDelta } : {}),
+      ...(afterRect ? { counterpartRect: { ...dc.rect } } : {}),
     };
   });
 

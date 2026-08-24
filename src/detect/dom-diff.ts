@@ -12,11 +12,20 @@ export interface DomNode {
   style: { color: string; backgroundColor: string; fontWeight: string; borderRadius: string };
 }
 
+export interface RectDelta {
+  dx: number;
+  dy: number;
+  dw: number;
+  dh: number;
+}
+
 export interface DomChange {
   path: string;
   id: string;
   rect: { x: number; y: number; w: number; h: number };
   changedFields: string[];
+  /** after − before rect delta; present whenever changedFields includes "position" or "size" */
+  rectDelta?: RectDelta;
 }
 
 export function parseSnapshot(json: string): DomNode[] {
@@ -32,6 +41,18 @@ function rectChanged(a: DomNode["rect"], b: DomNode["rect"]): boolean {
     Math.abs(a.w - b.w) > RECT_TOLERANCE_PX ||
     Math.abs(a.h - b.h) > RECT_TOLERANCE_PX
   );
+}
+
+function rectDeltaOf(b: DomNode["rect"], a: DomNode["rect"]): RectDelta {
+  return { dx: a.x - b.x, dy: a.y - b.y, dw: a.w - b.w, dh: a.h - b.h };
+}
+
+/** Decompose a rect delta into position (x/y moved) and size (w/h changed) fields. */
+export function rectDeltaFields(d: RectDelta): string[] {
+  const fields: string[] = [];
+  if (Math.abs(d.dx) > RECT_TOLERANCE_PX || Math.abs(d.dy) > RECT_TOLERANCE_PX) fields.push("position");
+  if (Math.abs(d.dw) > RECT_TOLERANCE_PX || Math.abs(d.dh) > RECT_TOLERANCE_PX) fields.push("size");
+  return fields;
 }
 
 /** Diff two DOM snapshots. Returns one DomChange per node whose text, rect, or style differs. */
@@ -53,7 +74,11 @@ export function diffDom(before: DomNode[], after: DomNode[]): DomChange[] {
     }
 
     const changedFields: string[] = [];
-    if (rectChanged(b.rect, a.rect)) changedFields.push("rect");
+    let rectDelta: RectDelta | undefined;
+    if (rectChanged(b.rect, a.rect)) {
+      rectDelta = rectDeltaOf(b.rect, a.rect);
+      changedFields.push(...rectDeltaFields(rectDelta));
+    }
     if (b.text !== a.text) changedFields.push("text");
     if (b.style.color !== a.style.color) changedFields.push("color");
     if (b.style.backgroundColor !== a.style.backgroundColor) changedFields.push("backgroundColor");
@@ -61,7 +86,7 @@ export function diffDom(before: DomNode[], after: DomNode[]): DomChange[] {
     if (b.style.borderRadius !== a.style.borderRadius) changedFields.push("borderRadius");
 
     if (changedFields.length > 0) {
-      changes.push({ path, id: a.id, rect: a.rect, changedFields });
+      changes.push({ path, id: a.id, rect: a.rect, changedFields, ...(rectDelta ? { rectDelta } : {}) });
     }
   }
 

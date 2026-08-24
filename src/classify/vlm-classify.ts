@@ -54,21 +54,68 @@ Respond with strict JSON only, no markdown fences:
  * the reference frame needed for type judgments (border-radius needs other
  * corners, color shift needs other swatches) — but the DOM diff already
  * knows which computed properties changed, and telling the model costs
- * ~20 tokens.
+ * ~50 tokens. Rect changes name their axes (position vs size, with signed
+ * deltas) so a translation can't be mistaken for a scaling, and element
+ * add/remove gets an explicit lifecycle sentence since "added"/"removed"
+ * are not computed properties.
  */
 export interface DomHint {
   /** computed-property names that changed, e.g. ["borderRadius"], ["color","backgroundColor"] */
   fields: string[];
   /** element id when known */
   id?: string;
+  /** signed rect deltas when the change is positional/dimensional, e.g. {dx: 32, dw: 0} */
+  rectDelta?: { dx: number; dy: number; dw: number; dh: number };
+  /** for element-remove regions: the rect the element occupied in the before frame (crop is the replacement's rect) */
+  counterpartRect?: { x: number; y: number; w: number; h: number };
+}
+
+function px(n: number): string {
+  return `${Math.round(n)}px`;
+}
+
+function hintSentence(hint: DomHint): string {
+  const target = hint.id ? ` (element #${hint.id})` : "";
+
+  // Element lifecycle changes get their own prompt shape: "added"/"removed"
+  // are not computed properties, and the default fields sentence would be
+  // more confusing than helpful.
+  if (hint.fields.includes("removed")) {
+    const orig = hint.counterpartRect
+      ? ` It previously occupied ${px(hint.counterpartRect.w)}×${px(hint.counterpartRect.h)} at (${px(hint.counterpartRect.x)}, ${px(hint.counterpartRect.y)}).`
+      : "";
+    return `Additional evidence from the deterministic DOM diff: an element${target} was REMOVED from this area in the after frame.${orig} The before crop shows the element itself; the after crop shows whatever moved into its place. This is an element-remove — do not classify the replacement's appearance as a shift or style change.`;
+  }
+  if (hint.fields.includes("added")) {
+    return `Additional evidence from the deterministic DOM diff: an element${target} was ADDED to this area in the after frame. The before crop has no such element; the after crop shows the new element. This is an element-add — do not classify it as a shift or style change.`;
+  }
+
+  // Position/size changes name the component axes and the signed deltas, so
+  // the model can tell a translation (dx/dy only) from a scaling (dw/dh only)
+  // without needing the global reference frame the crop removed.
+  const hasGeometry = hint.fields.includes("position") || hint.fields.includes("size");
+  if (hasGeometry) {
+    const parts: string[] = [];
+    if (hint.fields.includes("position") && hint.rectDelta) {
+      parts.push(`moved by (${px(hint.rectDelta.dx)}, ${px(hint.rectDelta.dy)})`);
+    }
+    if (hint.fields.includes("size") && hint.rectDelta) {
+      parts.push(`resized by (${px(hint.rectDelta.dw)} × ${px(hint.rectDelta.dh)})`);
+    }
+    const motion = parts.length > 0 ? `: ${parts.join(", ")}` : "";
+    const other = hint.fields.filter((f) => f !== "position" && f !== "size");
+    const also = other.length > 0 ? ` Also changed: ${other.join(", ")}.` : "";
+    return `Additional evidence from the deterministic DOM diff: the element in this region${target} changed geometry${motion}. This is ground truth, not a guess — position-only change = spatial-shift, size-only change = size-change, both = both.${also}`;
+  }
+
+  return `Additional evidence from the deterministic DOM diff: the element in this region${target} changed these computed properties: ${hint.fields.join(", ")}. Treat this as a strong prior for changeType — the visual difference in the crop may be too subtle to see, but the DOM-level change is ground truth, not a guess.`;
 }
 
 export function buildSystemPrompt(hint?: DomHint): string {
   if (!hint || hint.fields.length === 0) return SYSTEM_PROMPT;
-  const target = hint.id ? ` (element #${hint.id})` : "";
   return `${SYSTEM_PROMPT}
 
-Additional evidence from the deterministic DOM diff: the element in this region${target} changed these computed properties: ${hint.fields.join(", ")}. Treat this as a strong prior for changeType — the visual difference in the crop may be too subtle to see, but the DOM-level change is ground truth, not a guess.`;
+${hintSentence(hint)}`;
 }
 
 export async function classifyRegion(

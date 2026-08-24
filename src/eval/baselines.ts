@@ -127,7 +127,12 @@ export async function classifyDetectedRegions(
     sorted.map(async (region) => {
       const hint: DomHint | undefined =
         useDomHint && region.domChangedFields && region.domChangedFields.length > 0
-          ? { fields: region.domChangedFields, id: region.domId }
+          ? {
+              fields: region.domChangedFields,
+              id: region.domId,
+              ...(region.rectDelta ? { rectDelta: region.rectDelta } : {}),
+              ...(region.counterpartRect ? { counterpartRect: region.counterpartRect } : {}),
+            }
           : undefined;
       const c: Classification & { cached?: boolean } = cache
         ? await classifyRegionCached(provider, cache, cropRegion(before, region), cropRegion(after, region), hint)

@@ -90,6 +90,68 @@ test("classifyRegion: no hint keeps the base system prompt", async () => {
   assert.doesNotMatch(provider.systems[0], /ground truth/);
 });
 
+test("buildSystemPrompt: removed element gets an explicit lifecycle hint", async () => {
+  const provider = scriptedProvider([
+    { text: '{"changeType":"element-remove","description":"link removed","confidence":0.9}' },
+  ]);
+  const before = solidPng(20, 20, [255, 255, 255]);
+  const after = solidPng(20, 20, [255, 255, 255]);
+  await classifyRegion(provider, before, after, {
+    fields: ["removed"],
+    id: "link-3",
+    counterpartRect: { x: 517, y: 22, w: 32, h: 16 },
+  });
+  assert.match(provider.systems[0], /REMOVED/);
+  assert.match(provider.systems[0], /element-remove/);
+  assert.match(provider.systems[0], /#link-3/);
+  assert.match(provider.systems[0], /previously occupied/);
+  // must NOT use the generic "changed these computed properties" phrasing
+  assert.doesNotMatch(provider.systems[0], /computed properties: removed/);
+});
+
+test("buildSystemPrompt: added element gets an explicit lifecycle hint", async () => {
+  const provider = scriptedProvider([
+    { text: '{"changeType":"element-add","description":"row added","confidence":0.9}' },
+  ]);
+  const before = solidPng(20, 20, [255, 255, 255]);
+  const after = solidPng(20, 20, [255, 255, 255]);
+  await classifyRegion(provider, before, after, { fields: ["added"], id: "row-4" });
+  assert.match(provider.systems[0], /ADDED/);
+  assert.match(provider.systems[0], /element-add/);
+});
+
+test("buildSystemPrompt: position-only rect delta spells out the translation", async () => {
+  const provider = scriptedProvider([
+    { text: '{"changeType":"spatial-shift","description":"moved right","confidence":0.9}' },
+  ]);
+  const before = solidPng(20, 20, [255, 255, 255]);
+  const after = solidPng(20, 20, [255, 255, 255]);
+  await classifyRegion(provider, before, after, {
+    fields: ["position"],
+    id: "card-2",
+    rectDelta: { dx: 32, dy: 0, dw: 0, dh: 0 },
+  });
+  assert.match(provider.systems[0], /moved by \(32px, 0px\)/);
+  assert.match(provider.systems[0], /spatial-shift/);
+  assert.doesNotMatch(provider.systems[0], /resized/);
+});
+
+test("buildSystemPrompt: size-only rect delta spells out the resize", async () => {
+  const provider = scriptedProvider([
+    { text: '{"changeType":"size-change","description":"grew","confidence":0.9}' },
+  ]);
+  const before = solidPng(20, 20, [255, 255, 255]);
+  const after = solidPng(20, 20, [255, 255, 255]);
+  await classifyRegion(provider, before, after, {
+    fields: ["size"],
+    id: "logo",
+    rectDelta: { dx: 0, dy: 0, dw: -4, dh: 2 },
+  });
+  assert.match(provider.systems[0], /resized by \(-4px × 2px\)/);
+  assert.match(provider.systems[0], /size-change/);
+  assert.doesNotMatch(provider.systems[0], /moved by/);
+});
+
 test("classifyRegionCached: second call with identical crops is a cache hit and skips the provider", async () => {
   const provider = scriptedProvider([
     { text: '{"changeType":"color-change","description":"button turned red","confidence":0.9}' },
