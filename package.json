@@ -11,6 +11,7 @@
     "dataset:gen": "npm run build && node dist/dataset/generate.js",
     "eval:run": "npm run build && node dist/eval/run.js",
     "eval:mvp": "npm run build && node dist/eval/run-mvp.js",
+    "judge:mvp": "npm run build && node dist/eval/judge-mvp.js",
     "replay:router": "tsx scripts/router-replay.ts",
     "replay:assert": "tsx scripts/router-replay.ts --assert-escalation-under=0.05",
     "compare:models": "tsx scripts/compare-models.ts",

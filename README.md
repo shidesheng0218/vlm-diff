@@ -164,6 +164,25 @@ The same four-arm protocol rerun on a second vendor's model (`qwen3.8-max` via D
 
 To add a model: `VLM_DIFF_MVP_TAG=<name> VLM_DIFF_MVP_PROVIDER=<provider> VLM_DIFF_MVP_MODEL=<model> npm run eval:mvp`, then `npm run compare:models`. Models must support image input — verify with `VLM_DIFF_MVP_LIMIT=2` first (some gateways silently drop images; the telltale is prompt-token counts that don't reflect the image).
 
+### Blind Judge: Template vs VLM Description Quality
+
+The one question type accuracy can't answer: is template text *as good* as VLM text for a human triaging a regression? A blind judge (qwen3.8-max — a different vendor than the Kimi K3 that generated the VLM descriptions, avoiding self-preference bias; `npm run judge:mvp`) scored both arms' descriptions on 30 pairs, labels randomized per pair, ground truth provided:
+
+| Dimension | tiered (template) | fullPipeline + hint (VLM) |
+|---|---|---|
+| accuracy | 3.90 | **4.27** |
+| specificity | **3.90** | 3.73 |
+| readability | **4.60** | 4.50 |
+| **winner** | **14** | **14** (+2 ties) |
+
+A split decision — descriptions are comparable in quality. What the per-pair transcripts show:
+
+- **Templates win specificity** by carrying exact values: `font weight changed from semibold (600) to normal (400)`, `resized by +84×+20px (+35%) (from 240×56)`. The VLM approximates ("reduced, making the label appear slightly thinner").
+- **The VLM wins accuracy on semantic naming**: it says *"The blue 'Confirm' button was removed"* where the template says *"An element (#btn-confirm) was removed (previously 'Confirm')"*. DOM ids are developer-speak; visible labels are human-speak. This is the clearest template improvement path: carry the element's visible text through the diff and lead with it.
+- **Judge noise is real**: on `dashboard-element-add` the judge gave 5/4/5 to a factually *wrong* VLM description ("became 76px narrower" — ground truth is element-add) over the template's correct one. Exact-match type scoring (where tiered is 100% vs 93.3%) remains the more reliable yardstick; judge scores should be read as comparative signal, not ground truth.
+
+All of this comes at zero marginal cost for the tiered arm: comparable description quality, 98.9% fewer tokens.
+
 ### Original predictions (for reference)
 
 Based on **VLM-SubtleBench baseline** (GPT-5-thinking 77.8%, Claude Sonnet 4 62.6%) and **architectural analysis** (crop-then-classify avoids concatenation penalty; DOM ground truth filters noise):
