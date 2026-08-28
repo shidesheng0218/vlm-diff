@@ -189,7 +189,7 @@ Outputs `data/dataset.json` (145 pairs) + `data/images/*.png`
 ```bash
 npm test
 ```
-59 tests covering DOM diff, pixel diff, region fusion, VLM classification stubs, DOM-hint prompting, multi-region classification, classification caching, cost estimation, and provider selection (including the independent-judge fallback logic). Runs in CI on every push/PR.
+117 tests covering DOM diff (with before/after field values), pixel diff, region fusion, deterministic description routing + templates, VLM classification stubs, DOM-hint prompting, multi-region classification, the tiered pipeline (root-cause typing, VLM escalation), classification caching, cost estimation, and provider selection (including the independent-judge fallback logic). Runs in CI on every push/PR.
 
 ### 4. Run MVP evaluation (cheap smoke test, 15 pairs)
 
@@ -271,6 +271,15 @@ For those cases, pixel diff provides the fallback signal.
 **Theory**: VLMs have limited spatial attention across large images. When before/after are side-by-side at 960×500 each (1920×500 total), the model's attention diffuses. Cropping to focused regions forces attention on the change itself.
 
 **Empirical result (2026-08-19 MVP, Kimi K3, two runs): the unmodified theory broke — and the fix came from the detector.** Plain cropped classification scored 58.3–66.7% vs 100% for full-image classification among detected pairs. The mechanism: type judgments need a *reference frame* (other corners to judge border-radius, other swatches to judge color shift), and a 16px-padded crop amputates it. But the pipeline already knows the answer's shape — the DOM diff records *which computed properties changed* — and passing those field names as a ~50-token text hint alongside the same crops lifted classification to 83.3% in both runs, beating full-image classification end-to-end (83.3% vs 66.7–75.0% of all changed pairs, since rawPairToVlm misses 3–4 subtle pairs outright). Cropping still wins on input tokens (~692 vs ~1505/pair, hinted and multi-region). Remaining hint-schema gaps: `added`/`removed` are not property names (add/remove needs its own prompt shape), and a `rect` hint doesn't separate translation from scaling.
+
+### Deterministic-First Tiered Descriptions
+
+The newest iteration (`tieredPipeline` arm) inverts the assumption that every detected region needs a VLM call. The DOM diff already knows most of the answer — a `backgroundColor` delta from `rgb(37,99,235)` to `rgb(220,38,38)` renders as *"background color changed from blue to red"* from a template, with zero tokens. `src/describe/` routes each region:
+
+- **Tier A (deterministic)**: colors, text (numeric vs wording phrasing), style properties, element lifecycle, and geometry — a position delta renders as "moved 28px right" regardless of *why* it moved. A batch describer applies root-cause attribution: geometry-only regions in a pair that also has a non-geometry change (e.g. siblings pushed when a card is removed) are worded as *"moved 24px up as part of a layout shift caused by a nearby change"*.
+- **Tier B (VLM)**: only pixel-only regions with no DOM signal (e.g. canvas repaints).
+
+**Offline router replay over all 145 pairs, zero API calls** (`npm run replay:router`): **99.3% of regions are fully deterministic** (607/611; the only escalations are 4 pixel-only repaint regions), and root-cause-first pair-level typing scores **90.6% end-to-end type accuracy with zero VLM tokens** (vs 82.7% for largest-region-first typing) — higher than the full VLM pipeline's 83.3% on the MVP subset. The four-arm comparison (tiered / fullPipeline±hint / raw) runs in `npm run eval:mvp`; remaining validation: blind LLM-judge scoring of template vs VLM description phrasing, and replication on other models.
 
 ### Multi-Region Classification
 

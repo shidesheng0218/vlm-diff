@@ -11,6 +11,7 @@
     "dataset:gen": "npm run build && node dist/dataset/generate.js",
     "eval:run": "npm run build && node dist/eval/run.js",
     "eval:mvp": "npm run build && node dist/eval/run-mvp.js",
+    "replay:router": "tsx scripts/router-replay.ts",
     "demo:quick": "tsx scripts/demo-quick.ts",
     "demo:generate": "tsx scripts/demo-generate.ts",
     "demo:detect": "tsx scripts/demo-detect.ts"

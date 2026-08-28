@@ -90,3 +90,33 @@ test("diffDom: multiple field changes on one node are all reported", () => {
   assert.equal(changes.length, 1);
   assert.deepEqual(new Set(changes[0].changedFields), new Set(["position", "text"]));
 });
+
+test("diffDom: style change carries before/after values", () => {
+  const a = [node({})];
+  const b = [node({ style: { ...node().style, backgroundColor: "rgb(220,38,38)" } })];
+  const changes = diffDom(a, b);
+  assert.deepEqual(changes[0].values, {
+    backgroundColor: { before: "rgb(255,255,255)", after: "rgb(220,38,38)" },
+  });
+});
+
+test("diffDom: text change carries before/after values", () => {
+  const a = [node({ text: "Project Falcon" })];
+  const b = [node({ text: "Project Falcan" })];
+  const changes = diffDom(a, b);
+  assert.deepEqual(changes[0].values, { text: { before: "Project Falcon", after: "Project Falcan" } });
+});
+
+test("diffDom: added node carries the new text as after value", () => {
+  const a: DomNode[] = [];
+  const b = [node({ path: "DIV:1", text: "New card" })];
+  const changes = diffDom(a, b);
+  assert.deepEqual(changes[0].values, { text: { before: "", after: "New card" } });
+});
+
+test("diffDom: rect-only change carries no values", () => {
+  const a = [node({ rect: { x: 10, y: 10, w: 100, h: 20 } })];
+  const b = [node({ rect: { x: 16, y: 10, w: 100, h: 20 } })];
+  const changes = diffDom(a, b);
+  assert.equal(changes[0].values, undefined);
+});

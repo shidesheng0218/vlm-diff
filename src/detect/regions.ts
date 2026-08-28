@@ -11,7 +11,7 @@
 // visually significant but not captured by DOM diff (rare in this dataset,
 // but matters for generality — e.g. a canvas repaint).
 
-import { diffDom, parseSnapshot, type DomChange, type RectDelta } from "./dom-diff.js";
+import { diffDom, parseSnapshot, type DomChange, type FieldChange, type RectDelta } from "./dom-diff.js";
 import { diffImages, groupRegions, type PixelRegion } from "./perceptual-diff.js";
 
 export interface CandidateRegion {
@@ -24,6 +24,8 @@ export interface CandidateRegion {
   domId?: string;
   /** positional path of the DOM node (ids can be empty) */
   domPath?: string;
+  /** before/after values of the changed properties, when the region came from a DOM change */
+  domValues?: Record<string, FieldChange>;
   /** after − before rect delta, when the change includes a rect change */
   rectDelta?: RectDelta;
   /** for removed elements: the after-frame rect of the element that now occupies the vacated area */
@@ -85,6 +87,7 @@ export function detect(
       domChangedFields: dc.changedFields,
       domId: dc.id,
       domPath: dc.path,
+      ...(dc.values ? { domValues: dc.values } : {}),
       ...(dc.rectDelta ? { rectDelta: dc.rectDelta } : {}),
       ...(afterRect ? { counterpartRect: { ...dc.rect } } : {}),
     };

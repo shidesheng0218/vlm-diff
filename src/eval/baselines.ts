@@ -1,7 +1,11 @@
-// The three conditions being compared, per the plan's scientific core:
+// The four conditions being compared, per the plan's scientific core:
 //   (a) rawPairToVlm    — full before/after images straight to the VLM, ask "what changed"
 //   (b) pixelDiffOnly   — perceptual diff candidate regions, no DOM signal, no VLM
 //   (c) fullPipeline    — DOM diff + pixel diff fusion (with no-change suppression) -> VLM classify
+//   (d) tieredPipeline  — deterministic-first: regions the DOM fully explains are
+//                         described from templates (0 tokens); only ambiguous
+//                         regions (pixel-only, cascade reflow, combined
+//                         move+resize) escalate to VLM classification
 
 import { readFile } from "node:fs/promises";
 import type { Provider } from "../provider/types.js";
@@ -10,6 +14,7 @@ import { detect, type CandidateRegion, type DetectionResult } from "../detect/re
 import { diffImages, groupRegions } from "../detect/perceptual-diff.js";
 import { classifyRegion, classifyRegionCached, cropRegion } from "../classify/vlm-classify.js";
 import type { ChangeKind, Classification, DomHint } from "../classify/vlm-classify.js";
+import { describeRegions } from "../describe/describe.js";
 import type { CacheStore } from "../cache/store.js";
 import type { PairRecord } from "./types.js";
 // re-exported for callers that only need the record shape from this module
@@ -23,17 +28,21 @@ export interface RegionClassification {
   confidence: number;
   usage: { inputTokens: number; outputTokens: number };
   cached?: boolean;
+  /** how this region's description was produced (tieredPipeline only) */
+  route?: "deterministic" | "vlm";
+  /** true when this region carries the pair's root-cause change rather than being a reflow follower (tieredPipeline only) */
+  rootCause?: boolean;
 }
 
 export interface BaselineResult {
   pairId: string;
-  baseline: "rawPairToVlm" | "pixelDiffOnly" | "fullPipeline";
+  baseline: "rawPairToVlm" | "pixelDiffOnly" | "fullPipeline" | "tieredPipeline";
   predictedChanged: boolean;
   predictedRegions: Array<{ x: number; y: number; w: number; h: number }>;
   /** pair-level change type = the largest region's classification (scoring continuity) */
   predictedChangeType?: ChangeKind;
   description?: string;
-  /** per-region classifications, largest region first (fullPipeline only) */
+  /** per-region classifications, largest region first (fullPipeline / tieredPipeline) */
   classifications?: RegionClassification[];
   inputTokens: number;
   outputTokens: number;
@@ -207,5 +216,112 @@ export async function runFullPipeline(
     inputTokens: classifications.reduce((s, c) => s + c.usage.inputTokens, 0),
     outputTokens: classifications.reduce((s, c) => s + c.usage.outputTokens, 0),
     cached: cache ? classifications.every((c) => c.cached === true) : undefined,
+  };
+}
+
+/**
+ * Deterministic-first tiered pipeline. Same detection stage as
+ * runFullPipeline, but each region is routed first: regions the DOM diff
+ * fully explains get a template description with zero VLM tokens; only
+ * ambiguous regions (pixel-only, cascade reflow, combined move+resize) are
+ * classified by the VLM. Pair-level type/description still come from the
+ * largest region, keeping scoring comparable across arms.
+ */
+export async function runTieredPipeline(
+  provider: Provider,
+  pair: PairRecord,
+  dataDir: string,
+  cache?: CacheStore,
+  maxRegions: number = MAX_REGIONS_TO_CLASSIFY,
+): Promise<BaselineResult> {
+  const before = await readFile(`${dataDir}/${pair.before}`);
+  const after = await readFile(`${dataDir}/${pair.after}`);
+  const detection: DetectionResult = detect(pair.domBefore, pair.domAfter, before, after);
+
+  if (!detection.changed || detection.regions.length === 0) {
+    return {
+      pairId: pair.id,
+      baseline: "tieredPipeline",
+      predictedChanged: false,
+      predictedRegions: [],
+      inputTokens: 0,
+      outputTokens: 0,
+    };
+  }
+
+  const sorted = [...detection.regions].sort((a, b) => b.w * b.h - a.w * a.h).slice(0, maxRegions);
+
+  // Batch-describe with root-cause attribution: geometry-only regions in a
+  // pair that also has a non-geometry change get follower wording.
+  const descriptions = describeRegions(sorted);
+  const deterministic: RegionClassification[] = [];
+  const escalated: CandidateRegion[] = [];
+  for (let i = 0; i < sorted.length; i++) {
+    const region = sorted[i];
+    const d = descriptions[i];
+    if (d.route === "deterministic") {
+      deterministic.push({
+        region: { x: region.x, y: region.y, w: region.w, h: region.h },
+        source: region.source,
+        changeType: d.changeType!,
+        description: d.description!,
+        confidence: d.confidence!,
+        usage: { inputTokens: 0, outputTokens: 0 },
+        route: "deterministic",
+        rootCause: d.rootCause,
+      });
+    } else {
+      escalated.push(region);
+    }
+  }
+
+  // classifyDetectedRegions sorts its input again (stable for distinct
+  // sizes) and caps at maxRegions — the escalated list is already within cap.
+  // Escalations are pixel-only repaints: no DOM explanation exists, so they
+  // are their own root causes.
+  const vlmClassifications: RegionClassification[] =
+    escalated.length > 0
+      ? (await classifyDetectedRegions(provider, cache, before, after, escalated, true, maxRegions)).map((c) => ({
+          ...c,
+          route: "vlm" as const,
+          rootCause: true,
+        }))
+      : [];
+
+  const classifications = [...deterministic, ...vlmClassifications]
+    // pair-level type comes from the first entry: root causes (the region that
+    // carries the actual change) before reflow followers, then largest first.
+    // A removed card's container shrinking is a follower; the lifecycle region
+    // must win even when the container is bigger.
+    .sort((a, b) => {
+      if ((b.rootCause ?? false) !== (a.rootCause ?? false)) return (b.rootCause ?? false) ? 1 : -1;
+      return b.region.w * b.region.h - a.region.w * a.region.h;
+    });
+
+  if (classifications.length === 0) {
+    return {
+      pairId: pair.id,
+      baseline: "tieredPipeline",
+      predictedChanged: true,
+      predictedRegions: detection.regions.map((r) => ({ x: r.x, y: r.y, w: r.w, h: r.h })),
+      classifications: [],
+      inputTokens: 0,
+      outputTokens: 0,
+    };
+  }
+
+  const primary = classifications[0];
+
+  return {
+    pairId: pair.id,
+    baseline: "tieredPipeline",
+    predictedChanged: true,
+    predictedRegions: detection.regions.map((r) => ({ x: r.x, y: r.y, w: r.w, h: r.h })),
+    predictedChangeType: primary.changeType,
+    description: primary.description,
+    classifications,
+    inputTokens: classifications.reduce((s, c) => s + c.usage.inputTokens, 0),
+    outputTokens: classifications.reduce((s, c) => s + c.usage.outputTokens, 0),
+    cached: cache ? vlmClassifications.every((c) => c.cached === true) : undefined,
   };
 }

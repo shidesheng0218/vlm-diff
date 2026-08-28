@@ -34,6 +34,10 @@ export interface MetricsSummary {
   changeTypeAccuracy: number;
   avgInputTokens: number;
   avgOutputTokens: number;
+  /** among classified regions, fraction that needed a VLM call (tieredPipeline only; undefined otherwise) */
+  vlmRegionShare?: number;
+  /** among classified regions, fraction described deterministically at 0 tokens (tieredPipeline only) */
+  deterministicRegionShare?: number;
 }
 
 export function summarize(pairs: PairRecord[], results: BaselineResult[]): MetricsSummary {
@@ -50,6 +54,8 @@ export function summarize(pairs: PairRecord[], results: BaselineResult[]): Metri
   let typeAttempts = 0;
   let inputTokenSum = 0;
   let outputTokenSum = 0;
+  let routedRegions = 0;
+  let deterministicRegions = 0;
 
   for (const r of results) {
     const pair = byId.get(r.pairId);
@@ -57,6 +63,12 @@ export function summarize(pairs: PairRecord[], results: BaselineResult[]): Metri
     const groundTruthChanged = pair.kind !== "none";
     inputTokenSum += r.inputTokens;
     outputTokenSum += r.outputTokens;
+    for (const c of r.classifications ?? []) {
+      if (c.route) {
+        routedRegions++;
+        if (c.route === "deterministic") deterministicRegions++;
+      }
+    }
 
     if (!groundTruthChanged) {
       noChangePairs++;
@@ -91,6 +103,12 @@ export function summarize(pairs: PairRecord[], results: BaselineResult[]): Metri
     changeTypeAccuracy: typeAttempts > 0 ? typeCorrect / typeAttempts : 0,
     avgInputTokens: results.length > 0 ? inputTokenSum / results.length : 0,
     avgOutputTokens: results.length > 0 ? outputTokenSum / results.length : 0,
+    ...(routedRegions > 0
+      ? {
+          vlmRegionShare: (routedRegions - deterministicRegions) / routedRegions,
+          deterministicRegionShare: deterministicRegions / routedRegions,
+        }
+      : {}),
   };
 }
 

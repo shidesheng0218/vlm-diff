@@ -34,6 +34,14 @@ export interface DomChange {
   changedFields: string[];
   /** after − before rect delta; present whenever changedFields includes "position" or "size" */
   rectDelta?: RectDelta;
+  /** before/after values for each changed property (text or computed style); lets the
+   *  deterministic describer render "blue → red" without a VLM call */
+  values?: Record<string, FieldChange>;
+}
+
+export interface FieldChange {
+  before: string;
+  after: string;
 }
 
 export function parseSnapshot(json: string): DomNode[] {
@@ -75,29 +83,70 @@ export function diffDom(before: DomNode[], after: DomNode[]): DomChange[] {
     const a = afterByPath.get(path);
 
     if (!b || !a) {
-      // node added or removed
+      // node added or removed — carry the surviving side's text so the
+      // deterministic describer can name the added/removed element
       const ref = a ?? b!;
-      changes.push({ path, id: ref.id, rect: ref.rect, changedFields: [!b ? "added" : "removed"] });
+      const values: Record<string, FieldChange> = {};
+      if (ref.text) values.text = { before: !b ? "" : ref.text, after: !b ? ref.text : "" };
+      changes.push({
+        path,
+        id: ref.id,
+        rect: ref.rect,
+        changedFields: [!b ? "added" : "removed"],
+        ...(Object.keys(values).length > 0 ? { values } : {}),
+      });
       continue;
     }
 
     const changedFields: string[] = [];
+    const values: Record<string, FieldChange> = {};
     let rectDelta: RectDelta | undefined;
     if (rectChanged(b.rect, a.rect)) {
       rectDelta = rectDeltaOf(b.rect, a.rect);
       changedFields.push(...rectDeltaFields(rectDelta));
     }
-    if (b.text !== a.text) changedFields.push("text");
-    if (b.style.color !== a.style.color) changedFields.push("color");
-    if (b.style.backgroundColor !== a.style.backgroundColor) changedFields.push("backgroundColor");
-    if (b.style.fontWeight !== a.style.fontWeight) changedFields.push("fontWeight");
-    if (b.style.borderRadius !== a.style.borderRadius) changedFields.push("borderRadius");
-    if (b.style.opacity !== a.style.opacity) changedFields.push("opacity");
-    if (b.style.boxShadow !== a.style.boxShadow) changedFields.push("boxShadow");
-    if (b.style.border !== a.style.border) changedFields.push("border");
+    if (b.text !== a.text) {
+      changedFields.push("text");
+      values.text = { before: b.text, after: a.text };
+    }
+    if (b.style.color !== a.style.color) {
+      changedFields.push("color");
+      values.color = { before: b.style.color, after: a.style.color };
+    }
+    if (b.style.backgroundColor !== a.style.backgroundColor) {
+      changedFields.push("backgroundColor");
+      values.backgroundColor = { before: b.style.backgroundColor, after: a.style.backgroundColor };
+    }
+    if (b.style.fontWeight !== a.style.fontWeight) {
+      changedFields.push("fontWeight");
+      values.fontWeight = { before: b.style.fontWeight, after: a.style.fontWeight };
+    }
+    if (b.style.borderRadius !== a.style.borderRadius) {
+      changedFields.push("borderRadius");
+      values.borderRadius = { before: b.style.borderRadius, after: a.style.borderRadius };
+    }
+    if (b.style.opacity !== a.style.opacity) {
+      changedFields.push("opacity");
+      values.opacity = { before: b.style.opacity, after: a.style.opacity };
+    }
+    if (b.style.boxShadow !== a.style.boxShadow) {
+      changedFields.push("boxShadow");
+      values.boxShadow = { before: b.style.boxShadow, after: a.style.boxShadow };
+    }
+    if (b.style.border !== a.style.border) {
+      changedFields.push("border");
+      values.border = { before: b.style.border, after: a.style.border };
+    }
 
     if (changedFields.length > 0) {
-      changes.push({ path, id: a.id, rect: a.rect, changedFields, ...(rectDelta ? { rectDelta } : {}) });
+      changes.push({
+        path,
+        id: a.id,
+        rect: a.rect,
+        changedFields,
+        ...(rectDelta ? { rectDelta } : {}),
+        ...(Object.keys(values).length > 0 ? { values } : {}),
+      });
     }
   }
 

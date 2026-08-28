@@ -114,6 +114,7 @@ export async function generateHtmlReport(input: ReportInput, dataDir: string): P
                       (c) => `
                     <div class="region-row">
                       <span class="region-type">${escapeHtml(c.changeType)}</span>
+                      ${c.route === "deterministic" ? '<span class="badge badge-det">deterministic</span>' : c.route === "vlm" ? '<span class="badge badge-vlm">vlm</span>' : ""}
                       <span class="region-desc">${escapeHtml(c.description)}</span>
                       <span class="region-meta">${c.region.w}×${c.region.h} @(${c.region.x},${c.region.y}) · ${escapeHtml(c.source)} · conf ${c.confidence.toFixed(2)}${c.cached === true ? " · cache hit" : ""}</span>
                     </div>`,
@@ -147,6 +148,8 @@ export async function generateHtmlReport(input: ReportInput, dataDir: string): P
   .badge { font-size: 11px; padding: 2px 8px; border-radius: 6px; font-weight: 600; }
   .badge-hit { background: #d1fae5; color: #065f46; }
   .badge-miss { background: #fee2e2; color: #991b1b; }
+  .badge-det { background: #dbeafe; color: #1e40af; margin-right: 6px; }
+  .badge-vlm { background: #fef3c7; color: #92400e; margin-right: 6px; }
   .pair-images { display: flex; gap: 8px; margin-bottom: 8px; }
   .pair-images figure { margin: 0; flex: 1; }
   .pair-images img { width: 100%; border-radius: 6px; display: block; }
