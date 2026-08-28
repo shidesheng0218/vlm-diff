@@ -78,7 +78,11 @@ async function main() {
   const datasetJson = await readFile(join(DATA_DIR, "dataset.json"), "utf8");
   const allPairs: PairRecord[] = JSON.parse(datasetJson);
 
-  const pairs = MVP_IDS.map((id) => {
+  // VLM_DIFF_MVP_LIMIT=n runs only the first n pairs (cheap smoke test:
+  // verify a model supports image input before paying for the full run)
+  const limit = process.env.VLM_DIFF_MVP_LIMIT ? Number(process.env.VLM_DIFF_MVP_LIMIT) : undefined;
+  const ids = limit ? MVP_IDS.slice(0, limit) : MVP_IDS;
+  const pairs = ids.map((id) => {
     const p = allPairs.find((x) => x.id === id);
     if (!p) throw new Error(`MVP pair not found in dataset: ${id}`);
     return p;
@@ -147,7 +151,7 @@ async function main() {
     type: "mvp-validation",
     model: provider.model,
     n: pairs.length,
-    pairIds: MVP_IDS,
+    pairIds: ids,
     baselines: {
       tieredPipeline: { metrics: tieredSummary, perPair: perPairDetail(tieredResults) },
       fullPipelineWithDomHint: { metrics: hintSummary, perPair: perPairDetail(pipelineHintResults) },
@@ -166,7 +170,11 @@ async function main() {
   };
 
   await mkdir(RESULTS_DIR, { recursive: true });
-  const outPath = join(RESULTS_DIR, "mvp-report.json");
+  // VLM_DIFF_MVP_TAG=glm-5.2 → results/mvp-report-glm-5.2.json (multi-model
+  // replication runs must not overwrite each other; empty tag keeps the
+  // original path for backwards compatibility)
+  const tag = process.env.VLM_DIFF_MVP_TAG ? `-${process.env.VLM_DIFF_MVP_TAG}` : "";
+  const outPath = join(RESULTS_DIR, `mvp-report${tag}.json`);
   await writeFile(outPath, JSON.stringify(report, null, 2));
 
   console.log("=== MVP Summary (tiered / pipeline+hint / pipeline-hint / raw) ===");
