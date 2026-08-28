@@ -93,7 +93,7 @@ The detection layer is exercised over the full dataset on every `dataset:gen`: *
 
 ## Predicted Performance
 
-> **⚠️ Validation Status**: The deterministic detection layer (Stage 1) has been confirmed on the full dataset: 36/36 changed pairs detected, 0/3 false positives on no-change pairs. A **three-arm MVP with real API calls** (15-pair subset: rawPairToVlm vs fullPipeline vs fullPipeline + DOM-field hint, Kimi K3 via DashScope, two runs) confirmed the recall and FP-rate predictions (+25pp, 0%), **refuted plain crop-then-classify** (58.3–66.7% vs 100% conditional classification accuracy), and showed that passing the detector's changed-fields as a text hint **recovers the gap**: 83.3% classification in both runs, beating rawPairToVlm end-to-end (83.3% vs 66.7–75.0%). Details and failure-mode analysis below.
+> **⚠️ Validation Status**: The deterministic detection layer (Stage 1) has been confirmed on the full dataset: 139/139 changed pairs detected, 0/6 false positives on no-change pairs. The **three-arm MVP with real API calls** (15-pair subset: rawPairToVlm vs fullPipeline vs fullPipeline + DOM-field hint, Kimi K3 via DashScope, two runs) confirmed the recall and FP-rate predictions (+25pp, 0%), **refuted plain crop-then-classify** (58.3–66.7% vs 100% conditional classification accuracy), and showed that passing the detector's changed-fields as a text hint **recovers the gap**: 83.3% classification in both runs, beating rawPairToVlm end-to-end (83.3% vs 66.7–75.0%). A **four-arm MVP** (2026-08-28, 36 pairs, Kimi K3) then validated the tiered pipeline: **100% end-to-end type accuracy at ~15 tokens/pair** (98.9% token savings, 1.3% escalation). Details below.
 >
 > The eval harness (`npm run eval:run`) now scores description quality with an **independent judge model** (a different vendor than the one being evaluated, via `createJudgeProvider()`) to avoid self-preference bias — same-model judging was a known gap in the original methodology and is fixed as of [#1](https://github.com/shidesheng0218/vlm-diff/pull/1).
 
@@ -125,6 +125,27 @@ The detection layer is exercised over the full dataset on every `dataset:gen`: *
 5. **Hints make the model terser and steadier.** No-hint output tokens swung ~169 → ~560/pair across runs (rambling); the hinted arm stayed at ~127 → ~295. The 3,959-token single-response ramble from run 1 did not recur under the hint.
 
 Caveats: 15 pairs is a small sample (95% CI on 83.3% is roughly ±20pp), one model, one vendor. Criterion 3 now reads: crop-only **refuted**; crop + DOM-field hint **provisionally met** (+16.7pp end-to-end in run 2 vs the +15pp bar; +8.3pp in run 1 — the margin is within run-to-run noise on the raw side). Replication on Claude/GPT and a larger pair count is the next experiment.
+
+### Four-Arm MVP (real API calls, 2026-08-28)
+
+The tiered pipeline joined the comparison: 36 pairs (30 changed + 6 no-change, the full `MVP_IDS` list), Kimi K3 via DashScope, all four arms in one run. Reproduce with `npm run eval:mvp`. Total cost: **$0.18**.
+
+| Metric | **tieredPipeline** | fullPipeline + hint | fullPipeline (no hint) | rawPairToVlm |
+|--------|--------------------|---------------------|------------------------|--------------|
+| **Recall** (30 changed) | **100%** | 100% | 100% | 76.7% |
+| **FP rate** (6 no-change) | **0%** | 0% | 0% | 0% |
+| **End-to-end type accuracy** | **100%** (30/30) | 93.3% (28/30) | 56.7% | 95.7% of detected (but 7 changed pairs missed) |
+| **Avg tokens/pair** | **11 + 4** | 910 + 388 | 782 + 611 | 1505 + 196 |
+
+**What this run shows:**
+
+1. **The tiered arm wins on every axis.** 100% end-to-end type accuracy — the two failures the hinted pipeline made (`dashboard-element-add` typed size-change by its grown container; `modal-color-change-border` typed style-change) are exactly the cases root-cause attribution + templates eliminate. And it does this with **98.9% fewer tokens** than the hinted pipeline: 74 of 75 regions were described deterministically; the single VLM call was a pixel-only repaint band (navbar box-shadow).
+
+2. **The no-hint ablation refutation replicates a third time** (56.7%, after 58.3%/66.7% in the 2026-08-19 runs). Crop-then-classify without the DOM hint loses the reference frame, consistently.
+
+3. **rawPairToVlm's recall ceiling is stable.** It missed 7 of 30 changed pairs (3 small color changes, 2 tiny spatial shifts) — same failure class as both 15-pair runs — while its conditional accuracy among detected pairs stays high (95.7%). The VLM doesn't fail at describing; it fails at *finding*.
+
+Caveats: one model (Kimi K3), one vendor, one run; the offline-replay escalation rate (0.7% over all 145 pairs) and this run's rate (1.3% over 36 pairs) are both measured on DOM-observable mutations, so real-page escalation will be higher. Blind judge scoring of template vs VLM phrasing is still pending.
 
 ### Original predictions (for reference)
 
@@ -279,7 +300,9 @@ The newest iteration (`tieredPipeline` arm) inverts the assumption that every de
 - **Tier A (deterministic)**: colors, text (numeric vs wording phrasing), style properties, element lifecycle, and geometry — a position delta renders as "moved 28px right" regardless of *why* it moved. A batch describer applies root-cause attribution: geometry-only regions in a pair that also has a non-geometry change (e.g. siblings pushed when a card is removed) are worded as *"moved 24px up as part of a layout shift caused by a nearby change"*.
 - **Tier B (VLM)**: only pixel-only regions with no DOM signal (e.g. canvas repaints).
 
-**Offline router replay over all 145 pairs, zero API calls** (`npm run replay:router`): **99.3% of regions are fully deterministic** (607/611; the only escalations are 4 pixel-only repaint regions), and root-cause-first pair-level typing scores **90.6% end-to-end type accuracy with zero VLM tokens** (vs 82.7% for largest-region-first typing) — higher than the full VLM pipeline's 83.3% on the MVP subset. The four-arm comparison (tiered / fullPipeline±hint / raw) runs in `npm run eval:mvp`; remaining validation: blind LLM-judge scoring of template vs VLM description phrasing, and replication on other models.
+**Offline router replay over all 145 pairs, zero API calls** (`npm run replay:router`): **99.3% of regions are fully deterministic** (607/611; the only escalations are 4 pixel-only repaint regions), and root-cause-first pair-level typing scores **90.6% end-to-end type accuracy with zero VLM tokens** (vs 82.7% for largest-region-first typing) — higher than the full VLM pipeline's 83.3% on the MVP subset.
+
+**Real-API confirmation (2026-08-28, four-arm MVP, Kimi K3)**: on 36 pairs the tiered arm scored **100% end-to-end type accuracy at ~15 tokens/pair** — 74/75 regions deterministic, 1 VLM call, **98.9% token savings** vs the hinted pipeline — while fixing both failure modes the hinted VLM arm made. See the Four-Arm MVP section for the full table. Still pending: blind LLM-judge scoring of template vs VLM description phrasing, and replication on other models.
 
 ### Multi-Region Classification
 
