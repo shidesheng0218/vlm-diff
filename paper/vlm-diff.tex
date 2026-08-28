@@ -210,6 +210,30 @@ qwen3.8-max & 100 & 0 & \textbf{100} & 90.0 & 90.0 & 83.3 \\
 
 Three findings replicate across vendors. (1) The tiered arm wins identically on both models — its routing and descriptions are byte-identical; only the single escalated region's classification depends on the model. (2) The raw arm's recall ceiling (76.7/83.3\%) is a cross-vendor failure mode: VLMs fail at \textit{finding} subtle changes, not at describing them. (3) New: the crop-then-classify weakness is \textit{model-dependent} — Kimi collapses to 56.7\% without the DOM hint while qwen3.8-max holds 90\%, so the reference-frame amputation effect varies in severity by model; on both models, however, the hint arm never beats the tiered arm, and the deterministic tier sidesteps the output-variance problem entirely (qwen's hinted arm averages 2321 output tokens/pair, 6$\times$ Kimi's).
 
+\subsection{Blind Judge: Description Quality}
+
+Type accuracy aside, is template text \textit{as good} as VLM text for a human triaging a regression? A blind judge (qwen3.8-max — a different vendor than the Kimi K3 that generated the VLM descriptions, avoiding self-preference bias) scored both arms on 30 pairs with labels randomized and ground truth provided:
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{lcc}
+\toprule
+\textbf{Dimension (1--5)} & \textbf{tiered} & \textbf{VLM} \\
+\midrule
+accuracy & 3.90 & \textbf{4.27} \\
+specificity & \textbf{3.90} & 3.73 \\
+readability & \textbf{4.60} & 4.50 \\
+\midrule
+\textbf{winner} & \textbf{14} & \textbf{14} (2 ties) \\
+\bottomrule
+\end{tabular}
+\caption{Blind judge comparison. A split decision: templates win specificity by carrying exact values; the VLM wins accuracy via semantic naming (``the blue Confirm button was removed'' vs ``element \#btn-confirm was removed'').}
+\label{tab:judge}
+\end{table}
+
+Judge noise is itself instructive: on one pair the judge rated a factually \textit{wrong} VLM description (a container narrowing; ground truth is element-add) 5/4/5 over the template's correct one — so exact-match type scoring (tiered 100\% vs 93.3\%) remains the more reliable yardstick, and judge scores should be read as comparative signal. The template improvement path is explicit: carry the element's visible text through the diff and lead with it. Comparable quality at zero marginal cost completes the tiered arm's value proposition.
+
 \section{Discussion}
 
 \textbf{Limitations}. (1) \textit{Escalation-rate circularity}: the benchmark's mutations are DOM-observable by construction, so near-total determinism is expected here; real-page escalation (canvas, images, third-party widgets) is the open empirical question. (2) Synthetic fixtures: 6 hand-built pages; no responsive breakpoints, virtualized tables, or live widgets. (3) The no-change FP denominator is 6 (95\% CI upper bound $\approx$39\%). (4) MVP validated on one mid-tier model and 15 pairs; judge-scored description quality for template vs VLM phrasing is pending (type accuracy needs no judge — it is exact-match against ground truth). (5) Chromium only.
@@ -218,7 +242,7 @@ Three findings replicate across vendors. (1) The tiered arm wins identically on 
 
 \section{Conclusion}
 
-DOM structure is not just a detection signal for UI regression — it is a description signal. Fusing DOM+pixel diffs localizes changes perfectly on our benchmark (100\% recall, 0\% FP); routing each region through a deterministic-first describer with root-cause attribution answers 99.3\% of regions with zero tokens, escalating to a VLM only where no DOM signal exists. The live four-arm runs confirm it end-to-end on two vendors' models: 100\% change-type accuracy at ${\sim}$15 tokens/pair, with identical escalation rates. Where VLM calls remain necessary, the detector's changed fields are the difference between refuted (56--90\%, model-dependent) and winning (90--93\%) classification. Code, dataset, and a zero-cost CI gate on the escalation rate are open-sourced.
+DOM structure is not just a detection signal for UI regression — it is a description signal. Fusing DOM+pixel diffs localizes changes perfectly on our benchmark (100\% recall, 0\% FP); routing each region through a deterministic-first describer with root-cause attribution answers 99.3\% of regions with zero tokens, escalating to a VLM only where no DOM signal exists. The live four-arm runs confirm it end-to-end on two vendors' models: 100\% change-type accuracy at ${\sim}$15 tokens/pair, with identical escalation rates; a blind cross-vendor judge rates the zero-token template descriptions on par with VLM descriptions (14/14/2). Where VLM calls remain necessary, the detector's changed fields are the difference between refuted (56--90\%, model-dependent) and winning (90--93\%) classification. Code, dataset, and a zero-cost CI gate on the escalation rate are open-sourced.
 
 \bibliographystyle{plain}
 \begin{thebibliography}{9}
