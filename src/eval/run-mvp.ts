@@ -71,6 +71,7 @@ const PRICE_PER_MTOK: Record<string, { input: number; output: number }> = {
   anthropic: { input: 1.0, output: 5.0 }, // Haiku 4.5 list price
   moonshot: { input: 0.6, output: 2.5 }, // Kimi K3 — verify against current Moonshot pricing
   dashscope: { input: 0.6, output: 2.5 }, // Kimi K3 hosted on DashScope — same ballpark as Moonshot direct
+  opencode: { input: 3.0, output: 15.0 }, // Kimi K3 via OpenCode Zen — verify at opencode.ai/docs/zen
 };
 
 async function main() {

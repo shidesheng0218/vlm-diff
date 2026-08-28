@@ -22,9 +22,14 @@ export const PRESETS: Record<string, Preset> = {
   moonshot: { label: "Moonshot (Kimi)", protocol: "openai", baseURL: "https://api.moonshot.cn/v1", keyEnv: "MOONSHOT_API_KEY", defaultModel: "kimi-k3" },
   // Alibaba DashScope OpenAI-compatible mode; hosts third-party models incl. Kimi.
   dashscope: { label: "Alibaba DashScope", protocol: "openai", baseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1", keyEnv: "DASHSCOPE_API_KEY", defaultModel: "kimi/kimi-k3" },
+  // OpenCode Zen gateway (https://opencode.ai/zen): OpenAI-compatible
+  // chat/completions for Kimi/GLM/MiniMax/DeepSeek, Anthropic-compatible for
+  // Claude-family. We only use the chat/completions side. Model override via
+  // OPENCODE_MODEL (e.g. glm-5.2, kimi-k2.5, minimax-m3).
+  opencode: { label: "OpenCode Zen", protocol: "openai", baseURL: "https://opencode.ai/zen/v1", keyEnv: "OPENCODE_API_KEY", defaultModel: "kimi-k3" },
 };
 
-const DETECT_ORDER = ["anthropic", "openai", "moonshot", "dashscope"];
+const DETECT_ORDER = ["anthropic", "openai", "moonshot", "dashscope", "opencode"];
 
 export interface ProviderChoice {
   provider?: string;
