@@ -13,6 +13,7 @@
     "eval:mvp": "npm run build && node dist/eval/run-mvp.js",
     "replay:router": "tsx scripts/router-replay.ts",
     "replay:assert": "tsx scripts/router-replay.ts --assert-escalation-under=0.05",
+    "compare:models": "tsx scripts/compare-models.ts",
     "demo:quick": "tsx scripts/demo-quick.ts",
     "demo:generate": "tsx scripts/demo-generate.ts",
     "demo:detect": "tsx scripts/demo-detect.ts"
