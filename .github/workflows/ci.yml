@@ -15,3 +15,19 @@ jobs:
           node-version: 20
       - run: npm ci
       - run: npm test
+
+  # Zero-cost regression gate: regenerate the dataset (Playwright, no API
+  # calls) and replay the deterministic router over all pairs. Fails if the
+  # region escalation rate rises above 5% — i.e. if a change silently pushes
+  # regions that used to be described deterministically to the VLM.
+  replay-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci
+      - run: npx playwright install chromium
+      - run: npm run dataset:gen
+      - run: npm run replay:assert

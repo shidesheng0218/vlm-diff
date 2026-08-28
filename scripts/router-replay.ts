@@ -6,6 +6,10 @@
  *   - pair-level escalation rate
  *   - region-weighted token savings vs an always-classify pipeline
  *
+ * CI gate: pass --assert-escalation-under=<rate> (e.g. 0.05) and the script
+ * exits non-zero if the region escalation rate exceeds the threshold —
+ * catching detector/describer regressions that silently push work to the VLM.
+ *
  * Run: npm run replay:router
  */
 
@@ -16,6 +20,9 @@ import { describeRegion, describeRegions } from "../src/describe/describe.js";
 
 const DATA_DIR = path.join(process.cwd(), "data");
 const RESULTS_DIR = path.join(process.cwd(), "results");
+
+const assertArg = process.argv.find((a) => a.startsWith("--assert-escalation-under="));
+const maxEscalation = assertArg ? Number(assertArg.split("=")[1]) : undefined;
 
 interface KindStats {
   pairs: number;
@@ -143,6 +150,20 @@ async function main() {
     ),
   );
   console.log(`\nReport: ${outPath}`);
+
+  if (maxEscalation !== undefined) {
+    if (Number.isNaN(maxEscalation)) {
+      console.error(`--assert-escalation-under: not a number: ${assertArg}`);
+      process.exit(2);
+    }
+    if (regionEscalation >= maxEscalation) {
+      console.error(
+        `\nCI gate FAILED: region escalation rate ${(regionEscalation * 100).toFixed(1)}% >= threshold ${(maxEscalation * 100).toFixed(1)}%. A detector/describer change is likely pushing regions to the VLM that used to be deterministic.`,
+      );
+      process.exit(1);
+    }
+    console.log(`CI gate ok: escalation ${(regionEscalation * 100).toFixed(1)}% < ${(maxEscalation * 100).toFixed(1)}%`);
+  }
 }
 
 function getStats(map: Map<string, KindStats>, kind: string): KindStats {
