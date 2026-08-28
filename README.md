@@ -93,7 +93,7 @@ The detection layer is exercised over the full dataset on every `dataset:gen`: *
 
 ## Predicted Performance
 
-> **⚠️ Validation Status**: The deterministic detection layer (Stage 1) has been confirmed on the full dataset: 139/139 changed pairs detected, 0/6 false positives on no-change pairs. The **three-arm MVP with real API calls** (15-pair subset: rawPairToVlm vs fullPipeline vs fullPipeline + DOM-field hint, Kimi K3 via DashScope, two runs) confirmed the recall and FP-rate predictions (+25pp, 0%), **refuted plain crop-then-classify** (58.3–66.7% vs 100% conditional classification accuracy), and showed that passing the detector's changed-fields as a text hint **recovers the gap**: 83.3% classification in both runs, beating rawPairToVlm end-to-end (83.3% vs 66.7–75.0%). A **four-arm MVP** (2026-08-28, 36 pairs, Kimi K3) then validated the tiered pipeline: **100% end-to-end type accuracy at ~15 tokens/pair** (98.9% token savings, 1.3% escalation). Details below.
+> **⚠️ Validation Status**: The deterministic detection layer (Stage 1) has been confirmed on the full dataset: 139/139 changed pairs detected, 0/6 false positives on no-change pairs. The **three-arm MVP with real API calls** (15-pair subset: rawPairToVlm vs fullPipeline vs fullPipeline + DOM-field hint, Kimi K3 via DashScope, two runs) confirmed the recall and FP-rate predictions (+25pp, 0%), **refuted plain crop-then-classify** (58.3–66.7% vs 100% conditional classification accuracy), and showed that passing the detector's changed-fields as a text hint **recovers the gap**: 83.3% classification in both runs, beating rawPairToVlm end-to-end (83.3% vs 66.7–75.0%). A **four-arm MVP** (2026-08-28, 36 pairs, Kimi K3) then validated the tiered pipeline: **100% end-to-end type accuracy at ~15 tokens/pair** (98.9% token savings, 1.3% escalation), and a **multi-model replication** on qwen3.8-max reproduced the result exactly (100% / 0% / 100%, same 1.3% escalation). Details below.
 >
 > The eval harness (`npm run eval:run`) now scores description quality with an **independent judge model** (a different vendor than the one being evaluated, via `createJudgeProvider()`) to avoid self-preference bias — same-model judging was a known gap in the original methodology and is fixed as of [#1](https://github.com/shidesheng0218/vlm-diff/pull/1).
 
@@ -146,6 +146,23 @@ The tiered pipeline joined the comparison: 36 pairs (30 changed + 6 no-change, t
 3. **rawPairToVlm's recall ceiling is stable.** It missed 7 of 30 changed pairs (3 small color changes, 2 tiny spatial shifts) — same failure class as both 15-pair runs — while its conditional accuracy among detected pairs stays high (95.7%). The VLM doesn't fail at describing; it fails at *finding*.
 
 Caveats: one model (Kimi K3), one vendor, one run; the offline-replay escalation rate (0.7% over all 145 pairs) and this run's rate (1.3% over 36 pairs) are both measured on DOM-observable mutations, so real-page escalation will be higher. Blind judge scoring of template vs VLM phrasing is still pending.
+
+### Multi-Model Replication
+
+The same four-arm protocol rerun on a second vendor's model (`qwen3.8-max` via DashScope), aggregated by `npm run compare:models`:
+
+| Model | tiered: recall / FP / type-acc | tiered tokens/pair | escalation | hint type-acc | no-hint type-acc | raw recall |
+|---|---|---|---|---|---|---|
+| kimi/kimi-k3 (DashScope) | 100% / 0% / **100%** | 11+4 | 1.3% | 93.3% | 56.7% | 76.7% |
+| qwen3.8-max (DashScope) | 100% / 0% / **100%** | 9+17 | 1.3% | 90.0% | 90.0% | 83.3% |
+
+**Findings that replicate across vendors:**
+
+1. **The tiered arm wins identically on both models**: 100% recall / 0% FP / 100% end-to-end type accuracy, identical 1.3% escalation. This is by construction — the deterministic tier's routing and descriptions are byte-identical across models; only the single escalated region's classification depends on the model.
+2. **The raw arm's recall ceiling is a cross-vendor failure mode**: 76.7% / 83.3% — the VLM fails at *finding* subtle changes regardless of vendor, while its conditional accuracy among detected pairs stays high.
+3. **New finding: the crop-then-classify weakness is model-dependent.** Kimi collapses to 56.7% without the DOM hint; qwen3.8-max holds 90%. The "cropping amputates the reference frame" effect is severe for some models and mild for others — but on both models the hint arm never beats the tiered arm. Also note the hinted VLM arm's output verbosity varies wildly by model (qwen: 2321 output tokens/pair, 6× Kimi's); the deterministic tier sidesteps output variance entirely.
+
+To add a model: `VLM_DIFF_MVP_TAG=<name> VLM_DIFF_MVP_PROVIDER=<provider> VLM_DIFF_MVP_MODEL=<model> npm run eval:mvp`, then `npm run compare:models`. Models must support image input — verify with `VLM_DIFF_MVP_LIMIT=2` first (some gateways silently drop images; the telltale is prompt-token counts that don't reflect the image).
 
 ### Original predictions (for reference)
 
