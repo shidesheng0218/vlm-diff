@@ -24,6 +24,10 @@ const ANCHORS: Array<[string, Rgb]> = [
   ["green", { r: 22, g: 163, b: 74 }],
   ["dark green", { r: 21, g: 94, b: 63 }],
   ["cyan", { r: 6, g: 182, b: 212 }],
+  // CSS lightblue: without this anchor, Tailwind blue-300 (#93c5fd) was
+  // nearer to "light gray" than to "blue" and got misnamed (found by the
+  // judge human-calibration pass)
+  ["light blue", { r: 173, g: 216, b: 230 }],
   ["blue", { r: 37, g: 99, b: 235 }],
   ["navy", { r: 30, g: 58, b: 138 }],
   ["purple", { r: 147, g: 51, b: 234 }],

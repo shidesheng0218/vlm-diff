@@ -16,13 +16,18 @@ import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { createProvider } from "../provider/factory.js";
+import { extractJson } from "../util/json.js";
+import { loadDotEnv } from "../cli/env.js";
 import type { PairRecord } from "./types.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = join(__dirname, "..", "..", "data");
 const RESULTS_DIR = join(__dirname, "..", "..", "results");
 
-const REPORT_PATH = process.env.JUDGE_REPORT ?? join(RESULTS_DIR, "mvp-report.json");
+// resolved inside main() so .env-loaded variables are visible
+function reportPath(): string {
+  return process.env.JUDGE_REPORT ?? join(RESULTS_DIR, "mvp-report.json");
+}
 
 interface PerPair {
   id: string;
@@ -67,17 +72,14 @@ function hashSeed(id: string): number {
 }
 
 function parseVerdict(text: string): JudgeVerdict | undefined {
-  const cleaned = text.trim().replace(/^```json\s*/i, "").replace(/```$/, "");
-  try {
-    const j = JSON.parse(cleaned);
-    if (j?.A && j?.B && ["A", "B", "tie"].includes(j.winner)) return j;
-  } catch {
-    /* fall through */
-  }
+  const j = extractJson(text) as JudgeVerdict | undefined;
+  if (j?.A && j?.B && ["A", "B", "tie"].includes(j.winner)) return j;
   return undefined;
 }
 
 async function main() {
+  loadDotEnv(); // .env support: keys may live in a gitignored file
+  const REPORT_PATH = reportPath();
   const report: MvpReport = JSON.parse(await readFile(REPORT_PATH, "utf8"));
   const dataset: PairRecord[] = JSON.parse(await readFile(join(DATA_DIR, "dataset.json"), "utf8"));
   const byId = new Map(dataset.map((d) => [d.id, d]));
@@ -102,12 +104,16 @@ async function main() {
     winner: "tiered" | "vlm" | "tie";
   }
   const outcomes: PairOutcome[] = [];
+  const skipped: Array<{ id: string; reason: string }> = [];
   let parseFailures = 0;
 
   for (const [id, t] of tiered) {
     const v = vlm.get(id);
     const gt = byId.get(id);
-    if (!v || !gt || !t.description || !v.description) continue;
+    if (!v || !gt || !t.description || !v.description) {
+      skipped.push({ id, reason: !v ? "missing from VLM arm" : !gt ? "missing from dataset" : "missing description" });
+      continue;
+    }
 
     // Blind + order-randomized: arm→label assignment is seeded by pair id
     const tieredFirst = hashSeed(id) % 2 === 0;
@@ -119,12 +125,20 @@ async function main() {
       `Candidate ${labelFor(v.description!)}`,
     ].join("\n");
 
-    const result = await judge.send(SYSTEM_PROMPT, [
-      { role: "user", content: [{ type: "text", text: user }] },
-    ]);
-    const verdict = parseVerdict(result.text);
+    let verdict: JudgeVerdict | undefined;
+    try {
+      const result = await judge.send(SYSTEM_PROMPT, [
+        { role: "user", content: [{ type: "text", text: user }] },
+      ]);
+      verdict = parseVerdict(result.text);
+    } catch (err) {
+      skipped.push({ id, reason: `judge call failed: ${err instanceof Error ? err.message : err}` });
+      console.log(`  ${id}: judge call failed, skipped`);
+      continue;
+    }
     if (!verdict) {
       parseFailures++;
+      skipped.push({ id, reason: "unparseable judge response" });
       console.log(`  ${id}: judge returned unparseable response, skipped`);
       continue;
     }
@@ -144,6 +158,8 @@ async function main() {
     vlmDescriptionsBy: report.model,
     judge: `${judge.name}/${judge.model}`,
     pairsJudged: outcomes.length,
+    pairsSkipped: skipped.length,
+    ...(skipped.length > 0 ? { skipped } : {}),
     parseFailures,
     means: Object.fromEntries(
       dims.map((d) => [
@@ -163,7 +179,10 @@ async function main() {
   };
 
   await mkdir(RESULTS_DIR, { recursive: true });
-  const outPath = join(RESULTS_DIR, "judge-report.json");
+  // VLM_DIFF_JUDGE_TAG keeps multi-judge replication runs from clobbering
+  // each other (mirrors VLM_DIFF_MVP_TAG for MVP reports)
+  const judgeTag = process.env.VLM_DIFF_JUDGE_TAG ? `-${process.env.VLM_DIFF_JUDGE_TAG}` : "";
+  const outPath = join(RESULTS_DIR, `judge-report${judgeTag}.json`);
   await writeFile(outPath, JSON.stringify(summary, null, 2));
 
   console.log(`\n=== Blind Judge Summary (${outcomes.length} pairs, judge=${judge.model}) ===`);

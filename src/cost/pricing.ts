@@ -15,6 +15,12 @@ export const PRICING_TABLE: Record<string, ModelPricing> = {
   "claude-haiku-4.5": { inputPerMillion: 0.8, outputPerMillion: 4 },
   "gpt-5": { inputPerMillion: 5, outputPerMillion: 15 },
   "gpt-4o-mini": { inputPerMillion: 0.15, outputPerMillion: 0.6 },
+  // Kimi K3 — Moonshot direct and DashScope-hosted share the same ballpark.
+  // Verify against current vendor pricing before treating costs as exact.
+  "kimi-k3": { inputPerMillion: 0.6, outputPerMillion: 2.5 },
+  "kimi/kimi-k3": { inputPerMillion: 0.6, outputPerMillion: 2.5 },
+  // Verify against current DashScope pricing.
+  "qwen3.8-max": { inputPerMillion: 1.2, outputPerMillion: 6 },
 };
 
 function loadOverrides(): Record<string, ModelPricing> {
@@ -28,10 +34,19 @@ function loadOverrides(): Record<string, ModelPricing> {
   }
 }
 
-/** Returns 0 (with no warning) for unknown models — cost tracking is best-effort. */
+const warnedModels = new Set<string>();
+
+/** Returns 0 for unknown models and warns once per model, so silently-wrong
+ *  cost columns can't sneak into a report. */
 export function estimateCostUsd(model: string, usage: { inputTokens: number; outputTokens: number }): number {
   const pricing = loadOverrides()[model] ?? PRICING_TABLE[model];
-  if (!pricing) return 0;
+  if (!pricing) {
+    if (!warnedModels.has(model)) {
+      warnedModels.add(model);
+      console.warn(`[cost] no pricing known for model "${model}" — cost reported as $0 (set PRICING_OVERRIDES_JSON to fix)`);
+    }
+    return 0;
+  }
   return (
     (usage.inputTokens / 1_000_000) * pricing.inputPerMillion +
     (usage.outputTokens / 1_000_000) * pricing.outputPerMillion

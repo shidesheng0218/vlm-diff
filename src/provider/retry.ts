@@ -7,6 +7,15 @@
 export interface RetryOptions {
   maxAttempts?: number;
   baseDelayMs?: number;
+  /** exponential backoff cap (default 30s) */
+  maxDelayMs?: number;
+}
+
+function envNumber(name: string): number | undefined {
+  const raw = process.env[name];
+  if (!raw) return undefined;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : undefined;
 }
 
 function isRetryable(err: unknown): boolean {
@@ -19,8 +28,13 @@ function isRetryable(err: unknown): boolean {
 }
 
 export async function withRetry<T>(fn: () => Promise<T>, opts: RetryOptions = {}): Promise<T> {
-  const maxAttempts = opts.maxAttempts ?? 8;
-  const baseDelayMs = opts.baseDelayMs ?? 15000;
+  // v0.1 defaults (8 attempts, 15s base) could sleep ~3.4h in the worst case.
+  // 5 attempts on a 5s base capped at 30s waits at most ~100s total, which
+  // rides out provider overload spikes without stalling an eval run. Both are
+  // overridable via VLM_DIFF_RETRY_ATTEMPTS / VLM_DIFF_RETRY_BASE_MS.
+  const maxAttempts = opts.maxAttempts ?? envNumber("VLM_DIFF_RETRY_ATTEMPTS") ?? 5;
+  const baseDelayMs = opts.baseDelayMs ?? envNumber("VLM_DIFF_RETRY_BASE_MS") ?? 5000;
+  const maxDelayMs = opts.maxDelayMs ?? 30000;
   let lastErr: unknown;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
@@ -28,7 +42,7 @@ export async function withRetry<T>(fn: () => Promise<T>, opts: RetryOptions = {}
     } catch (err) {
       lastErr = err;
       if (!isRetryable(err) || attempt === maxAttempts) throw err;
-      const delay = baseDelayMs * 2 ** (attempt - 1);
+      const delay = Math.min(baseDelayMs * 2 ** (attempt - 1), maxDelayMs);
       console.warn(`  [retry] attempt ${attempt}/${maxAttempts} failed (${(err as Error)?.message ?? err}); waiting ${delay / 1000}s`);
       await new Promise((resolve) => setTimeout(resolve, delay));
     }

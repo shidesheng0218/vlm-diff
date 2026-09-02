@@ -65,13 +65,12 @@ async function main() {
     if (!detection.changed || detection.regions.length === 0) continue; // no-change pair, suppressed
 
     changedPairs++;
-    const domRegionCount = detection.regions.filter((r) => r.source !== "pixel").length;
     const reasons: string[] = [];
 
     for (const region of detection.regions) {
       stats.regions++;
       totalRegions++;
-      const d = describeRegion(region, domRegionCount);
+      const d = describeRegion(region);
       if (d.route === "deterministic") {
         stats.deterministic++;
         totalDeterministic++;

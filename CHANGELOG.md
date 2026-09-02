@@ -1,0 +1,72 @@
+# Changelog
+
+## [0.2.0] — 2026-09-02
+
+The "research demo → usable tool" release. Five verified problems, fixed:
+
+### Algorithm
+
+- **Relaxed no-change suppression** (`src/detect/regions.ts`): v0.1 suppressed every pixel delta when the DOM was unchanged, which made the VLM escalation path unreachable for exactly the cases it was built for (canvas repaints change zero DOM fields). v0.2 splits the rule at a noise floor (`pixelOnlyThreshold`, default 0.2% of frame pixels): sub-floor deltas stay suppressed; above-floor deltas become `visualOnly` pairs whose pixel regions escalate to the VLM tier.
+- **End-to-end "none" aggregation** (`src/eval/baselines.ts`, `src/core/diff.ts`): a purely pixel-driven pair whose escalated regions are all classified `none` flips back to unchanged — false-positive accounting is now an end-to-end measurement. Gated on `visualOnly` so DOM evidence can never be vetoed by a model hiccup.
+- **Classifier taxonomy**: `ChangeKind` gains `none`; `parseClassification` validates against the union (garbage types coerce to `other`).
+- **Size-mismatch robustness** (`src/detect/perceptual-diff.ts`): frames of different sizes (real pages change height between versions) are normalized onto a common max-size canvas instead of crashing pixelmatch.
+
+### Dataset (145 → 185 pairs)
+
+- New `media.html` fixture with `<canvas>`/`<svg>`/`<img>` widgets.
+- 4 pixel-only mutations that only the escalation path can handle: canvas repaint (color), canvas repaint (shape), SVG area fill via attribute, image `src` swap.
+- No-change pairs deepened 6 → 42 (re-render/reload/settle variants; the previously dead `none-b`/`none-c` mutations now generate). The 0% FP rate's Clopper-Pearson 95% CI upper bound drops from ≈46% to ≈8%.
+- DOM snapshots are SVG-safe (`className` unwrapped from `SVGAnimatedString`).
+- Generation skips mutations whose selector matches nothing in a fixture instead of emitting mislabeled pairs.
+
+### CLI & integrations
+
+- **`vlm-diff` CLI** (`src/cli/`, `bin` entry): `diff <before.png> <after.png> [--dom-before/--dom-after] [--provider/--model] [--threshold] [--json] [--no-vlm]` with CI exit codes (0 no change / 1 changed / 2 error) and graceful pixel-only degradation without DOM snapshots; `snapshot <url> --out-dom [--out-png]` captures any page via Playwright. `.env` support via a built-in loader (no dependency).
+- **MCP server** (`src/mcp/server.ts`, `vlm-diff-mcp` bin): `diff_screenshots` and `snapshot_url` tools over stdio — coding agents get a visual-regression sense. `npm run mcp:smoke` walks the full handshake offline.
+- **Shared capture module** (`src/snapshot/capture.ts`): dataset generation, CLI, and MCP all use one snapshot implementation (the demo script's diverged 4-field copy is gone).
+
+### Statistics (`src/eval/stats.ts`, `npm run stats:report`)
+
+- Clopper-Pearson exact CIs for every rate, Wilson CIs for cross-checks.
+- McNemar exact test for paired arm comparisons.
+- Seeded percentile bootstrap for judge score gaps.
+- Retroactive over existing reports: e.g. tiered vs raw recall is significant (p=0.016); tiered vs hint type accuracy is not (p=0.5 at n=30); all judge dimensions' bootstrap CIs straddle zero.
+
+### Judge calibration (`npm run judge:calibrate`)
+
+- Human labels for all 30 judged pairs (`data/judge-human-labels.json`, committed): 27/30 pairs have both descriptions correct — consistent with the 14/14/2 split. The judge's vlm lean concentrates on the 3 factually wrong descriptions. Judge-vs-human correctness agreement 66.7%/80%: usable in aggregate, too noisy per pair.
+
+### Live re-run on the expanded subset (2026-09-02)
+
+- Four-arm MVP on the 51-pair v0.2 subset with qwen3.8-max ($1.36 total): tiered recall 100% [CI 89.7–100%], FP 0% on 17 no-change pairs (upper bound now 19.5%), end-to-end type accuracy 97.1%, 90.2% token savings vs the hinted arm, subset escalation 18.7% (pixel-only media pairs by construction). The single type "miss" (`media-image-src-swap`) is a label-granularity artifact: the VLM described the icon swap as a blue→red color change, which is factually correct.
+- All four pixel-only media pairs were classified correctly by the VLM tier — the escalation path is now exercised live, not just offline.
+- Model coverage note: this DashScope account entitles only qwen3.8-max (kimi/GLM denied at runtime, qwen3.7-max is text-only), so the v0.1 kimi+qwen reports remain the cross-vendor evidence.
+
+### Real-world validation (`scripts/validate-real-repo.ts`)
+
+- Git-worktree harness with git-diff ground truth over pages and linked local assets. 6 commit-pair scenarios across two real open-source repos: 0 false positives, 0 misses; image-content swaps escalate 100%, DOM-explained changes stay 83% deterministic; visually-silent source changes (`lang` attribute, font URL protocol, JS interaction fix) are reported as a separate `silent` verdict class.
+
+### Bug fixes
+
+- **Cache key includes provider+model** (`src/cache/key.ts`): switching models with a warm cache no longer silently returns another model's classifications (version-prefixed keys invalidate v0.1 entries automatically).
+- **Single pricing table** (`src/cost/pricing.ts`): the duplicate table in `run-mvp.ts` is gone; kimi/qwen models have entries; unknown models warn once instead of silently reporting $0.
+- **Eval robustness** (`src/eval/run-mvp.ts`, `src/eval/run.ts`, `src/eval/judge-mvp.ts`): per-pair errors are isolated (one failure no longer kills a multi-dollar run), results checkpoint after every pair (`VLM_DIFF_MVP_RESUME=1` to resume), judge calls are concurrency-capped, the tiered arm joins `eval:run`, judge reports support `VLM_DIFF_JUDGE_TAG` and record skipped pairs.
+- **Retry bounds**: worst-case wait drops from ~3.4h (8 attempts, 15s base) to ~100s (5 attempts, 5s base, 30s cap), configurable via `VLM_DIFF_RETRY_ATTEMPTS`/`VLM_DIFF_RETRY_BASE_MS`.
+- **JSON extraction** deduplicated into `src/util/json.ts` (was copy-pasted in 4 places).
+- Dead `domRegionCount` parameter removed from the describe API.
+- Cross-platform `postbuild` (was `mkdir -p && cp -r`).
+- Demo chain rewritten on real code: `demo:quick` runs the real algorithm on synthetic inputs, `demo:generate`/`demo:detect` use the real snapshot format and `detect()` (the old `demo:detect` imported a module that didn't exist).
+
+### CI
+
+- New `cli-mcp-smoke` job: demo chain, CLI exit-code smoke, MCP handshake — all offline.
+
+### Docs
+
+- README rewritten CLI-first; dataset/validation sections updated with CIs; new Real-World Validation section; limitations re-derived.
+- Paper (`paper/vlm-diff.tex`) updated: thresholded suppression, expanded dataset, real-repo results, CIs/McNemar/bootstrap, judge calibration.
+- Juejin article gains a v0.2 section and re-derived limitations.
+
+## [0.1.0] — 2026-08-28
+
+Initial research prototype: DOM+pixel fusion detection, crop-then-classify with DOM-field hints, tiered deterministic-first descriptions, four-arm MVP (Kimi K3), cross-vendor replication (qwen3.8-max), blind judge (14/14/2), zero-cost CI escalation gate.

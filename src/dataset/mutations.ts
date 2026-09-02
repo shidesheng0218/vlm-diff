@@ -11,6 +11,7 @@ export type MutationKind =
   | "element-add"
   | "element-remove"
   | "style-change"
+  | "other"
   | "none";
 
 export interface Mutation {
@@ -24,6 +25,10 @@ export interface Mutation {
   description: string;
   /** JS run in the page context (via page.evaluate) to apply the mutation */
   apply: (selector: string | undefined) => void;
+  /** "none" pairs only: settle time before the after capture (default 20ms) */
+  settleMs?: number;
+  /** "none" pairs only: reload the page between captures instead of re-rendering in place */
+  reload?: boolean;
 }
 
 // NOTE: `apply` bodies are serialized via toString() and re-executed inside
@@ -378,7 +383,8 @@ export const EXTRA_MUTATIONS: TargetedMutation[] = [
     kind: "none",
     magnitude: "small",
     targets: {},
-    description: "no DOM/CSS mutation (second no-change sample per fixture)",
+    settleMs: 60,
+    description: "no DOM/CSS mutation (second no-change sample, 60ms settle)",
     apply: () => { /* no-op */ },
   },
   {
@@ -386,7 +392,129 @@ export const EXTRA_MUTATIONS: TargetedMutation[] = [
     kind: "none",
     magnitude: "small",
     targets: {},
-    description: "no DOM/CSS mutation (third no-change sample per fixture)",
+    settleMs: 100,
+    description: "no DOM/CSS mutation (third no-change sample, 100ms settle)",
+    apply: () => { /* no-op */ },
+  },
+];
+
+// ─── v0.2 expansion (2026-09-02): pixel-only mutations + no-change depth ───
+// The v0.1 dataset was DOM-observable by construction, which made the
+// escalation rate circular (99.3% determinism was guaranteed by the
+// benchmark). These mutations exercise the pixel-only path that the relaxed
+// no-change suppression rule (regions.ts) now escalates to the VLM:
+// canvas/SVG repaints and image swaps change zero captured DOM fields.
+// The extra "none" variants deepen the false-positive denominator (v0.1
+// had 6 no-change pairs; the 95% CI on a 0% FP rate reached ~39%).
+// `targets: {}` on none-kind mutations means "every fixture" (generate.ts).
+
+export const V02_MUTATIONS: TargetedMutation[] = [
+  {
+    id: "canvas-repaint-color",
+    kind: "color-change",
+    magnitude: "large",
+    targets: { "media.html": "#chart-canvas" },
+    description: "canvas bar chart repainted in a different color (zero DOM signal)",
+    apply: (sel) => {
+      const c = document.querySelector(sel!) as HTMLCanvasElement;
+      const ctx = c.getContext("2d")!;
+      let s = 42; // identical seed/geometry as the fixture's initial draw
+      const rnd = () => { s = (s * 9301 + 49297) % 233280; return s / 233280; };
+      ctx.fillStyle = "#f3f4f6";
+      ctx.fillRect(0, 0, c.width, c.height);
+      for (let i = 0; i < 8; i++) {
+        const h = 24 + Math.floor(rnd() * 100);
+        ctx.fillStyle = "#dc2626";
+        ctx.fillRect(i * 36 + 14, 140 - h, 26, h);
+      }
+    },
+  },
+  {
+    id: "canvas-repaint-shape",
+    kind: "size-change",
+    magnitude: "small",
+    targets: { "media.html": "#chart-canvas" },
+    description: "canvas bar chart redrawn with different bar heights (zero DOM signal)",
+    apply: (sel) => {
+      const c = document.querySelector(sel!) as HTMLCanvasElement;
+      const ctx = c.getContext("2d")!;
+      let s = 1337; // different seed → different heights, same palette
+      const rnd = () => { s = (s * 9301 + 49297) % 233280; return s / 233280; };
+      ctx.fillStyle = "#f3f4f6";
+      ctx.fillRect(0, 0, c.width, c.height);
+      for (let i = 0; i < 8; i++) {
+        const h = 24 + Math.floor(rnd() * 100);
+        ctx.fillStyle = "#3b82f6";
+        ctx.fillRect(i * 36 + 14, 140 - h, 26, h);
+      }
+    },
+  },
+  {
+    id: "svg-repaint-fill",
+    kind: "color-change",
+    magnitude: "small",
+    targets: { "media.html": "#spark-bg" },
+    description: "SVG sparkline background recolored via fill attribute (not a captured DOM field)",
+    // A stroke-only recolor on a 2px line changes ~0.04% of frame pixels —
+    // below any sane noise floor, so it would never reach the VLM tier and
+    // would only re-document pixel diff's known limit. Recoloring the 200×48
+    // background rect crosses the floor, and a `fill` attribute change is
+    // invisible to the DOM snapshot (geometry and captured styles unchanged).
+    // Note: the target color must clear pixelmatch's own YIQ threshold (0.15);
+    // #fecaca sits below it and registers zero changed pixels.
+    apply: (sel) => {
+      document.querySelectorAll(sel!).forEach((el) => {
+        el.setAttribute("fill", "#f87171");
+      });
+    },
+  },
+  {
+    id: "image-src-swap",
+    kind: "other",
+    magnitude: "large",
+    targets: { "media.html": "#avatar" },
+    description: "image src swapped for a different graphic (src is not a captured DOM field)",
+    apply: (sel) => {
+      const swapped =
+        "data:image/svg+xml;utf8," +
+        encodeURIComponent(
+          "<svg xmlns='http://www.w3.org/2000/svg' width='64' height='64'>" +
+            "<rect width='64' height='64' rx='12' fill='#dc2626'/>" +
+            "<circle cx='32' cy='26' r='10' fill='white'/>" +
+            "<rect x='16' y='40' width='32' height='14' rx='7' fill='white'/>" +
+            "</svg>",
+        );
+      document.querySelectorAll(sel!).forEach((el) => {
+        (el as HTMLImageElement).src = swapped;
+      });
+    },
+  },
+  {
+    id: "none-d",
+    kind: "none",
+    magnitude: "small",
+    targets: {},
+    settleMs: 200,
+    description: "no DOM/CSS mutation (long-settle re-render, 200ms)",
+    apply: () => { /* no-op */ },
+  },
+  {
+    id: "none-e",
+    kind: "none",
+    magnitude: "small",
+    targets: {},
+    reload: true,
+    description: "no DOM/CSS mutation (full page reload between captures)",
+    apply: () => { /* no-op */ },
+  },
+  {
+    id: "none-f",
+    kind: "none",
+    magnitude: "small",
+    targets: {},
+    reload: true,
+    settleMs: 100,
+    description: "no DOM/CSS mutation (reload + 100ms settle, second reload sample)",
     apply: () => { /* no-op */ },
   },
 ];

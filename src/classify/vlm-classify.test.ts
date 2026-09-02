@@ -55,6 +55,21 @@ test("parseClassification: falls back to 'other' on malformed output", () => {
   assert.equal(result.confidence, 0);
 });
 
+test("parseClassification: accepts the none verdict for visual-only regions", () => {
+  const result = parseClassification('{"changeType":"none","description":"no meaningful change","confidence":0.8}');
+  assert.equal(result.changeType, "none");
+});
+
+test("parseClassification: unknown changeType values are coerced to 'other'", () => {
+  const result = parseClassification('{"changeType":"cosmic-ray-flip","description":"x","confidence":0.5}');
+  assert.equal(result.changeType, "other");
+});
+
+test("parseClassification: extracts JSON embedded in prose", () => {
+  const result = parseClassification('Sure! Here is the result: {"changeType":"text-change","description":"label","confidence":0.6} Hope that helps.');
+  assert.equal(result.changeType, "text-change");
+});
+
 test("classifyRegion: sends before/after image blocks and parses response", async () => {
   const provider = scriptedProvider([
     { text: '{"changeType":"spatial-shift","description":"element moved right","confidence":0.85}' },

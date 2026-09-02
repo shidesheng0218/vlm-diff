@@ -10,6 +10,7 @@ import type { CandidateRegion } from "../detect/regions.js";
 import { PNG } from "pngjs";
 import type { CacheStore } from "../cache/store.js";
 import { computeCacheKey } from "../cache/key.js";
+import { extractJson } from "../util/json.js";
 
 export type ChangeKind =
   | "spatial-shift"
@@ -19,7 +20,22 @@ export type ChangeKind =
   | "element-add"
   | "element-remove"
   | "style-change"
-  | "other";
+  | "other"
+  /** the detector flagged the region but no meaningful visual change exists;
+   *  pair-level aggregation turns an all-"none" verdict back into "unchanged" */
+  | "none";
+
+export const CHANGE_KINDS: readonly ChangeKind[] = [
+  "spatial-shift",
+  "color-change",
+  "size-change",
+  "text-change",
+  "element-add",
+  "element-remove",
+  "style-change",
+  "other",
+  "none",
+];
 
 export interface Classification {
   changeType: ChangeKind;
@@ -43,10 +59,10 @@ export function cropRegion(pngBuffer: Buffer, region: CandidateRegion): Buffer {
   return PNG.sync.write(out);
 }
 
-const SYSTEM_PROMPT = `You are comparing a cropped "before" region and the corresponding cropped "after" region from a UI screenshot. A deterministic detector has already localized this region as containing a change (or borderline noise) — your job is ONLY to classify the type of change and describe it, not to search the rest of the image.
+const SYSTEM_PROMPT = `You are comparing a cropped "before" region and the corresponding cropped "after" region from a UI screenshot. A deterministic detector has already localized this region as containing a change (or borderline noise) — your job is ONLY to classify the type of change and describe it, not to search the rest of the image. If the two crops are effectively identical (render noise, no meaningful visual difference), answer "none" and say there is no meaningful change.
 
 Respond with strict JSON only, no markdown fences:
-{"changeType": "spatial-shift" | "color-change" | "size-change" | "text-change" | "element-add" | "element-remove" | "style-change" | "other", "description": "<one sentence>", "confidence": <0-1>}`;
+{"changeType": "spatial-shift" | "color-change" | "size-change" | "text-change" | "element-add" | "element-remove" | "style-change" | "other" | "none", "description": "<one sentence>", "confidence": <0-1>}`;
 
 /**
  * Ground-truth evidence from the DOM diff, passed to the classifier as a
@@ -151,7 +167,12 @@ export async function classifyRegionCached(
   afterCrop: Buffer,
   hint?: DomHint,
 ): Promise<Classification & { cached: boolean }> {
-  const key = computeCacheKey(beforeCrop, afterCrop, hint ? JSON.stringify(hint) : undefined);
+  const key = computeCacheKey(
+    beforeCrop,
+    afterCrop,
+    hint ? JSON.stringify(hint) : undefined,
+    `${provider.name}/${provider.model}`,
+  );
   const hit = await cache.get(key);
   if (hit) {
     return { ...hit.classification, usage: { inputTokens: 0, outputTokens: 0 }, cached: true };
@@ -163,15 +184,19 @@ export async function classifyRegionCached(
 }
 
 export function parseClassification(text: string): Omit<Classification, "usage"> {
-  const cleaned = text.trim().replace(/^```json\s*/i, "").replace(/```$/, "");
-  try {
-    const parsed = JSON.parse(cleaned);
-    return {
-      changeType: parsed.changeType ?? "other",
-      description: parsed.description ?? "",
-      confidence: typeof parsed.confidence === "number" ? parsed.confidence : 0,
-    };
-  } catch {
+  const parsed = extractJson(text) as
+    | { changeType?: unknown; description?: unknown; confidence?: unknown }
+    | undefined;
+  if (!parsed) {
     return { changeType: "other", description: text.trim(), confidence: 0 };
   }
+  const changeType: ChangeKind =
+    typeof parsed.changeType === "string" && (CHANGE_KINDS as readonly string[]).includes(parsed.changeType)
+      ? (parsed.changeType as ChangeKind)
+      : "other";
+  return {
+    changeType,
+    description: typeof parsed.description === "string" ? parsed.description : "",
+    confidence: typeof parsed.confidence === "number" ? parsed.confidence : 0,
+  };
 }

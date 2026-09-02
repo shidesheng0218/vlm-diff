@@ -5,6 +5,7 @@
 
 import type { Provider } from "../provider/types.js";
 import { textBlock } from "../provider/types.js";
+import { extractJson } from "../util/json.js";
 
 export interface JudgeScore {
   score: number; // 1-5
@@ -34,14 +35,12 @@ export async function judgeDescription(
 }
 
 export function parseJudgeScore(text: string): JudgeScore {
-  const cleaned = text.trim().replace(/^```json\s*/i, "").replace(/```$/, "");
-  try {
-    const parsed = JSON.parse(cleaned);
-    const score = typeof parsed.score === "number" ? Math.max(1, Math.min(5, Math.round(parsed.score))) : 1;
-    return { score, rationale: parsed.rationale ?? "" };
-  } catch {
+  const parsed = extractJson(text) as { score?: unknown; rationale?: unknown } | undefined;
+  if (!parsed) {
     return { score: 1, rationale: `unparseable judge output: ${text.slice(0, 100)}` };
   }
+  const score = typeof parsed.score === "number" ? Math.max(1, Math.min(5, Math.round(parsed.score))) : 1;
+  return { score, rationale: typeof parsed.rationale === "string" ? parsed.rationale : "" };
 }
 
 export function averageScore(scores: JudgeScore[]): number {

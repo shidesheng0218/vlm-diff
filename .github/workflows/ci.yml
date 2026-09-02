@@ -31,3 +31,31 @@ jobs:
       - run: npx playwright install chromium
       - run: npm run dataset:gen
       - run: npm run replay:assert
+
+  # Entry-point smoke: the demo chain, the CLI, and the MCP server handshake
+  # all work offline (no API keys). A changed-pair diff exits 1 by design, so
+  # the CLI smoke asserts a no-change pair (exit 0) plus --json output shape.
+  cli-mcp-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci
+      - run: npx playwright install chromium
+      - run: npm run build
+      - name: demo chain
+        run: |
+          npm run demo:generate
+          npm run demo:detect
+      - name: dataset + CLI smoke (no-change pair, exit 0)
+        run: |
+          npm run dataset:gen
+          node -e "const p=require('./data/dataset.json').find(x=>x.id==='card-list-none'); const fs=require('fs'); fs.writeFileSync('/tmp/dom-b.json', p.domBefore); fs.writeFileSync('/tmp/dom-a.json', p.domAfter);"
+          node dist/cli/main.js diff \
+            data/images/card-list-none-before.png \
+            data/images/card-list-none-after.png \
+            --dom-before /tmp/dom-b.json --dom-after /tmp/dom-a.json
+      - name: MCP smoke (stdio handshake + deterministic diff)
+        run: npx tsx scripts/mcp-smoke.ts

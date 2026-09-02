@@ -1,27 +1,35 @@
-// MVP validation: runs fullPipeline on a representative 33-pair subset to
+// MVP validation: runs the four arms on a representative pair subset to
 // verify the README's predicted metrics without the full-eval budget.
+//
+// Robustness (v0.2): per-pair errors are isolated (one failure no longer
+// kills a multi-dollar run), and results are checkpointed to
+// results/mvp-checkpoint[-tag].json after every pair. Re-run with
+// VLM_DIFF_MVP_RESUME=1 to continue an interrupted run.
 //
 // Usage:
 //   MOONSHOT_API_KEY=sk-... npm run eval:mvp                     # Kimi (default if only key set)
 //   ANTHROPIC_API_KEY=sk-ant-... npm run eval:mvp                # Claude
 //   VLM_DIFF_MVP_PROVIDER=moonshot VLM_DIFF_MVP_MODEL=kimi-k3 npm run eval:mvp
 
-import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { readFile, writeFile, mkdir, rm } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { createProvider } from "../provider/factory.js";
 import { runFullPipeline, runRawPairToVlm, runTieredPipeline, type BaselineResult } from "./baselines.js";
 import { summarize } from "./metrics.js";
+import { estimateCostUsd } from "../cost/pricing.js";
+import { loadDotEnv } from "../cli/env.js";
 import type { PairRecord } from "./types.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = join(__dirname, "..", "..", "data");
 const RESULTS_DIR = join(__dirname, "..", "..", "results");
 
-// 33 pairs: the original 15 (kept for cross-run comparability) + 18 more
-// covering the 3 new fixtures (table/modal/dashboard), the new mutation
-// variants, and all 6 no-change pairs. Stratified: 11 subtle/boundary,
-// 16 clear, 6 no-change.
+// 51 pairs: the original 15 (kept for cross-run comparability) + 15 covering
+// the 3 new fixtures (table/modal/dashboard) and mutation variants + v0.2's
+// 4 pixel-only media pairs (the tiered escalation path) + 17 no-change pairs
+// deepened from 6 to shrink the false-positive CI. Stratified: subtle/boundary,
+// clear, pixel-only, and no-change.
 const MVP_IDS = [
   // ── original 15 ──
   "card-list-color-change-small",
@@ -63,18 +71,39 @@ const MVP_IDS = [
   "table-none",
   "modal-none",
   "dashboard-none",
+  // ── v0.2: pixel-only pairs (exercise VLM escalation end-to-end) ──
+  "media-canvas-repaint-color",
+  "media-canvas-repaint-shape",
+  "media-svg-repaint-fill",
+  "media-image-src-swap",
+  // ── v0.2: deepened no-change denominator (CI on the FP rate) ──
+  "card-list-none-b",
+  "card-list-none-c",
+  "card-list-none-d",
+  "card-list-none-e",
+  "card-list-none-f",
+  "media-none",
+  "media-none-b",
+  "media-none-c",
+  "media-none-d",
+  "media-none-e",
+  "media-none-f",
 ];
 
-// Pricing per million tokens (input/output), USD — used only for the cost
-// line in the report. Add/adjust entries as needed.
-const PRICE_PER_MTOK: Record<string, { input: number; output: number }> = {
-  anthropic: { input: 1.0, output: 5.0 }, // Haiku 4.5 list price
-  moonshot: { input: 0.6, output: 2.5 }, // Kimi K3 — verify against current Moonshot pricing
-  dashscope: { input: 0.6, output: 2.5 }, // Kimi K3 hosted on DashScope — same ballpark as Moonshot direct
-  opencode: { input: 3.0, output: 15.0 }, // Kimi K3 via OpenCode Zen — verify at opencode.ai/docs/zen
-};
+interface RunError {
+  baseline: string;
+  pairId: string;
+  message: string;
+}
+
+interface Checkpoint {
+  model: string;
+  baselines: Record<string, BaselineResult[]>;
+  errors: RunError[];
+}
 
 async function main() {
+  loadDotEnv(); // .env support: keys may live in a gitignored file, not just the environment
   const datasetJson = await readFile(join(DATA_DIR, "dataset.json"), "utf8");
   const allPairs: PairRecord[] = JSON.parse(datasetJson);
 
@@ -95,34 +124,75 @@ async function main() {
 
   console.log(`MVP eval: ${pairs.length} pairs, model=${provider.model}\n`);
 
+  const tag = process.env.VLM_DIFF_MVP_TAG ? `-${process.env.VLM_DIFF_MVP_TAG}` : "";
+  const checkpointPath = join(RESULTS_DIR, `mvp-checkpoint${tag}.json`);
+  await mkdir(RESULTS_DIR, { recursive: true });
+
+  // Resume support: VLM_DIFF_MVP_RESUME=1 continues an interrupted run from
+  // the checkpoint (only when the same model is being evaluated).
+  let checkpoint: Checkpoint = { model: provider.model, baselines: {}, errors: [] };
+  if (process.env.VLM_DIFF_MVP_RESUME === "1") {
+    try {
+      const saved: Checkpoint = JSON.parse(await readFile(checkpointPath, "utf8"));
+      if (saved.model === provider.model) {
+        checkpoint = saved;
+        const done = Object.values(saved.baselines).reduce((s, rs) => s + rs.length, 0);
+        console.log(`Resuming from checkpoint: ${done} completed pair-runs, ${saved.errors.length} prior errors\n`);
+      } else {
+        console.log(`Checkpoint is for model ${saved.model}, not ${provider.model} — starting fresh\n`);
+      }
+    } catch {
+      /* no checkpoint yet */
+    }
+  }
+
+  async function saveCheckpoint() {
+    await writeFile(checkpointPath, JSON.stringify(checkpoint, null, 2));
+  }
+
   async function runBaseline(
     label: string,
+    baselineKey: string,
     run: (pair: PairRecord) => Promise<BaselineResult>,
   ): Promise<BaselineResult[]> {
     console.log(`--- ${label} ---`);
-    const results: BaselineResult[] = [];
+    const results: BaselineResult[] = checkpoint.baselines[baselineKey] ?? [];
+    const doneIds = new Set(results.map((r) => r.pairId));
     for (const pair of pairs) {
+      if (doneIds.has(pair.id)) {
+        console.log(`  ${pair.id} (${pair.kind})... resumed`);
+        continue;
+      }
       process.stdout.write(`  ${pair.id} (${pair.kind})... `);
-      const r = await run(pair);
-      results.push(r);
-      const nRegions = r.classifications?.length ?? 0;
-      const regionNote = nRegions > 1 ? ` [${nRegions} regions]` : "";
-      const status =
-        pair.kind === "none"
-          ? r.predictedChanged ? "FALSE POSITIVE ✗" : "ok (unchanged)"
-          : r.predictedChanged
-            ? `detected, type=${r.predictedChangeType ?? "?"}${r.predictedChangeType === pair.kind ? " ✓" : ` (expected ${pair.kind}) ✗`}${regionNote}`
-            : "MISSED ✗";
-      console.log(status);
+      try {
+        const r = await run(pair);
+        results.push(r);
+        const nRegions = r.classifications?.length ?? 0;
+        const regionNote = nRegions > 1 ? ` [${nRegions} regions]` : "";
+        const status =
+          pair.kind === "none"
+            ? r.predictedChanged ? "FALSE POSITIVE ✗" : "ok (unchanged)"
+            : r.predictedChanged
+              ? `detected, type=${r.predictedChangeType ?? "?"}${r.predictedChangeType === pair.kind ? " ✓" : ` (expected ${pair.kind}) ✗`}${regionNote}`
+              : "MISSED ✗";
+        console.log(status);
+      } catch (err) {
+        // Per-pair isolation: one failure must not kill a multi-dollar run.
+        const message = err instanceof Error ? err.message : String(err);
+        checkpoint.errors.push({ baseline: baselineKey, pairId: pair.id, message });
+        console.log(`ERROR ✗ (${message})`);
+      }
+      checkpoint.baselines[baselineKey] = results;
+      await saveCheckpoint();
     }
     console.log();
     return results;
   }
 
-  const tieredResults = await runBaseline("tieredPipeline (deterministic-first)", (p) => runTieredPipeline(provider, p, DATA_DIR, undefined));
-  const pipelineHintResults = await runBaseline("fullPipeline + DOM hint", (p) => runFullPipeline(provider, p, DATA_DIR, undefined, true));
-  const pipelineNoHintResults = await runBaseline("fullPipeline (no hint, ablation)", (p) => runFullPipeline(provider, p, DATA_DIR, undefined, false));
-  const rawResults = await runBaseline("rawPairToVlm", (p) => runRawPairToVlm(provider, p, DATA_DIR));
+  const tieredResults = await runBaseline("tieredPipeline (deterministic-first)", "tieredPipeline", (p) => runTieredPipeline(provider, p, DATA_DIR, undefined));
+  const pipelineHintResults = await runBaseline("fullPipeline + DOM hint", "fullPipelineWithDomHint", (p) => runFullPipeline(provider, p, DATA_DIR, undefined, true));
+  const pipelineNoHintResults = await runBaseline("fullPipeline (no hint, ablation)", "fullPipelineNoHint", (p) => runFullPipeline(provider, p, DATA_DIR, undefined, false));
+  const rawResults = await runBaseline("rawPairToVlm", "rawPairToVlm", (p) => runRawPairToVlm(provider, p, DATA_DIR));
 
   const tieredSummary = summarize(pairs, tieredResults);
   const hintSummary = summarize(pairs, pipelineHintResults);
@@ -141,10 +211,7 @@ async function main() {
   const allResults = [...tieredResults, ...pipelineHintResults, ...pipelineNoHintResults, ...rawResults];
   const totalInput = allResults.reduce((s, r) => s + r.inputTokens, 0);
   const totalOutput = allResults.reduce((s, r) => s + r.outputTokens, 0);
-  const price = PRICE_PER_MTOK[provider.name] ?? { input: 0, output: 0 };
-  const costUsd =
-    (totalInput / 1_000_000) * price.input +
-    (totalOutput / 1_000_000) * price.output;
+  const costUsd = estimateCostUsd(provider.model, { inputTokens: totalInput, outputTokens: totalOutput });
 
   const report = {
     generatedAt: new Date().toISOString(),
@@ -152,6 +219,7 @@ async function main() {
     model: provider.model,
     n: pairs.length,
     pairIds: ids,
+    ...(checkpoint.errors.length > 0 ? { errors: checkpoint.errors } : {}),
     baselines: {
       tieredPipeline: { metrics: tieredSummary, perPair: perPairDetail(tieredResults) },
       fullPipelineWithDomHint: { metrics: hintSummary, perPair: perPairDetail(pipelineHintResults) },
@@ -169,13 +237,12 @@ async function main() {
     costUsd: Math.round(costUsd * 10000) / 10000,
   };
 
-  await mkdir(RESULTS_DIR, { recursive: true });
   // VLM_DIFF_MVP_TAG=glm-5.2 → results/mvp-report-glm-5.2.json (multi-model
   // replication runs must not overwrite each other; empty tag keeps the
   // original path for backwards compatibility)
-  const tag = process.env.VLM_DIFF_MVP_TAG ? `-${process.env.VLM_DIFF_MVP_TAG}` : "";
   const outPath = join(RESULTS_DIR, `mvp-report${tag}.json`);
   await writeFile(outPath, JSON.stringify(report, null, 2));
+  await rm(checkpointPath, { force: true });
 
   console.log("=== MVP Summary (tiered / pipeline+hint / pipeline-hint / raw) ===");
   console.log(`Recall:                    ${pct(tieredSummary.recall)} / ${pct(hintSummary.recall)} / ${pct(noHintSummary.recall)} / ${pct(rawSummary.recall)}`);
@@ -183,10 +250,13 @@ async function main() {
   console.log(`Classification accuracy:   ${pct(tieredSummary.changeTypeAccuracy)} / ${pct(hintSummary.changeTypeAccuracy)} / ${pct(noHintSummary.changeTypeAccuracy)} / ${pct(rawSummary.changeTypeAccuracy)}`);
   console.log(`Avg tokens/pair (in+out):  ${tieredSummary.avgInputTokens.toFixed(0)}+${tieredSummary.avgOutputTokens.toFixed(0)} / ${hintSummary.avgInputTokens.toFixed(0)}+${hintSummary.avgOutputTokens.toFixed(0)} / ${noHintSummary.avgInputTokens.toFixed(0)}+${noHintSummary.avgOutputTokens.toFixed(0)} / ${rawSummary.avgInputTokens.toFixed(0)}+${rawSummary.avgOutputTokens.toFixed(0)}`);
   console.log(`Tiered escalation rate:    ${pct(escalationRate)} (${tieredRegions.length - deterministicRegions}/${tieredRegions.length} regions via VLM; deterministic saved ${pct(tokenSavingsVsHint)} tokens vs pipeline+hint)`);
-  if (price.input > 0) {
+  if (costUsd > 0) {
     console.log(`Total cost:                $${costUsd.toFixed(4)}`);
   } else {
     console.log(`Total tokens:              ${totalInput} in / ${totalOutput} out`);
+  }
+  if (checkpoint.errors.length > 0) {
+    console.log(`\n⚠️  ${checkpoint.errors.length} pair-run(s) failed and are excluded from metrics (see "errors" in the report).`);
   }
   console.log(`\nReport: ${outPath}`);
 }

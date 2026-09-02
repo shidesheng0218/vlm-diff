@@ -2,14 +2,15 @@ import { chromium } from "playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { MUTATIONS, EXTRA_MUTATIONS, isTargeted, type Mutation } from "./mutations.js";
+import { MUTATIONS, EXTRA_MUTATIONS, V02_MUTATIONS, isTargeted, type Mutation } from "./mutations.js";
+import { snapshotDom } from "../snapshot/capture.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const FIXTURES_DIR = join(__dirname, "fixtures");
 const OUT_DIR = join(__dirname, "..", "..", "data");
 
-const FIXTURES = ["card-list.html", "form.html", "navbar.html", "table.html", "modal.html", "dashboard.html"];
-const ALL_MUTATIONS: Mutation[] = [...MUTATIONS, ...EXTRA_MUTATIONS];
+const FIXTURES = ["card-list.html", "form.html", "navbar.html", "table.html", "modal.html", "dashboard.html", "media.html"];
+const ALL_MUTATIONS: Mutation[] = [...MUTATIONS, ...EXTRA_MUTATIONS, ...V02_MUTATIONS];
 const VIEWPORT = { width: 960, height: 500 };
 
 /** The selector a mutation actually targets in a given fixture: `targets[fixture]` for targeted mutations, else the legacy blanket selector. */
@@ -33,75 +34,27 @@ interface PairRecord {
   groundTruthRect?: { x: number; y: number; w: number; h: number };
 }
 
-// Serializes a snapshot of tag/id/class/rect/computed-style for every element,
-// used by the DOM-diff detector in src/detect/dom-diff.ts.
-async function snapshotDom(page: import("playwright").Page): Promise<string> {
-  const snapshot = await page.evaluate(() => {
-    const nodes: Array<{
-      path: string;
-      tag: string;
-      id: string;
-      className: string;
-      text: string;
-      rect: { x: number; y: number; w: number; h: number };
-      style: { color: string; backgroundColor: string; fontWeight: string; borderRadius: string; opacity: string; boxShadow: string; border: string };
-    }> = [];
-
-    function pathFor(el: Element, root: Element): string {
-      const parts: string[] = [];
-      let cur: Element | null = el;
-      while (cur && cur !== root) {
-        const parent: Element | null = cur.parentElement;
-        const idx = parent ? Array.from(parent.children).indexOf(cur) : 0;
-        parts.unshift(`${cur.tagName}:${idx}`);
-        cur = parent;
-      }
-      return parts.join(">");
-    }
-
-    const root = document.body;
-    root.querySelectorAll("*").forEach((el) => {
-      const rect = el.getBoundingClientRect();
-      const cs = getComputedStyle(el);
-      nodes.push({
-        path: pathFor(el, root),
-        tag: el.tagName,
-        id: el.id,
-        className: el.className,
-        text:
-          el.tagName === "INPUT" || el.tagName === "TEXTAREA"
-            ? (el as HTMLInputElement).value
-            : el.children.length === 0
-              ? (el.textContent ?? "").trim()
-              : "",
-        rect: { x: Math.round(rect.x), y: Math.round(rect.y), w: Math.round(rect.width), h: Math.round(rect.height) },
-        style: {
-          color: cs.color,
-          backgroundColor: cs.backgroundColor,
-          fontWeight: cs.fontWeight,
-          borderRadius: cs.borderRadius,
-          opacity: cs.opacity,
-          boxShadow: cs.boxShadow,
-          border: cs.border,
-        },
-      });
-    });
-    return JSON.stringify(nodes);
-  });
-  return snapshot;
-}
-
 async function renderPair(
   browser: import("playwright").Browser,
   fixturePath: string,
   mutation: Mutation,
   pairId: string,
   fixtureName: string,
-): Promise<PairRecord> {
+): Promise<PairRecord | undefined> {
   const selector = selectorFor(mutation, fixtureName);
   const page = await browser.newPage({ viewport: VIEWPORT });
   await page.goto(`file://${fixturePath}`);
   await page.waitForTimeout(50);
+
+  // Legacy blanket selectors only cover the fixtures they were written for;
+  // skip instead of emitting a mislabeled unchanged pair.
+  if (selector) {
+    const matched = await page.evaluate((sel) => document.querySelectorAll(sel).length > 0, selector);
+    if (!matched) {
+      await page.close();
+      return undefined;
+    }
+  }
 
   const beforePng = await page.screenshot();
   const domBefore = await snapshotDom(page);
@@ -125,8 +78,12 @@ async function renderPair(
       { selector, fnSrc: mutation.apply.toString() },
     );
   } else if (mutation.kind === "none") {
-    // no-op: re-screenshot the identical page to capture render-timing noise
-    await page.waitForTimeout(20);
+    // no-op variants: re-render in place (settle) or full reload, both of
+    // which capture the render-timing noise real CI re-captures exhibit.
+    if (mutation.reload) {
+      await page.reload();
+    }
+    await page.waitForTimeout(mutation.settleMs ?? 20);
   }
 
   const afterPng = await page.screenshot();
@@ -220,10 +177,16 @@ async function main() {
   for (const fixture of FIXTURES) {
     const fixturePath = join(FIXTURES_DIR, fixture);
     for (const mutation of ALL_MUTATIONS) {
-      // targeted mutations only apply to fixtures they name a selector for
-      if (isTargeted(mutation) && !mutation.targets[fixture]) continue;
+      // targeted mutations only apply to fixtures they name a selector for;
+      // none-kind mutations (empty targets) apply to every fixture — they
+      // build the false-positive denominator and need maximum depth
+      if (isTargeted(mutation) && mutation.kind !== "none" && !mutation.targets[fixture]) continue;
       const pairId = `${fixture.replace(".html", "")}-${mutation.id}`;
       const record = await renderPair(browser, fixturePath, mutation, pairId, fixture);
+      if (!record) {
+        console.log(`skipped  ${pairId} (selector matches nothing in ${fixture})`);
+        continue;
+      }
       records.push(record);
       console.log(`generated ${pairId}`);
     }

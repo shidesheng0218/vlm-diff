@@ -20,7 +20,7 @@ Institution \\
 \maketitle
 
 \begin{abstract}
-Frontier vision-language models (VLMs) struggle with fine-grained visual differences, achieving only 62--78\% accuracy on subtle UI changes vs a 95\% human baseline. We propose a hybrid approach that leverages the UI domain's unique advantage: DOM structure as ground truth. Our pipeline localizes changed regions with deterministic DOM+pixel diffing (no-change suppression: zero DOM changes $\Rightarrow$ unchanged, 0\% false positives on all 6 no-change fixtures of a 145-pair dataset), then describes each region on a \textit{tiered} basis: regions the DOM diff fully explains (color, text, style, lifecycle, geometry) receive template-generated descriptions with zero tokens; only regions with no DOM signal (e.g.\ canvas repaints) escalate to a VLM. Real-API MVPs (Kimi K3) confirm the architecture: a three-arm run shows +33pp recall over full-image VLM with 0\% false positives and refutes plain crop-then-classify (58--67\% vs 100\% conditional accuracy) — passing the detector's changed fields as a text hint recovers the gap (83.3\%). A four-arm run then validates the tiered pipeline end-to-end: \textbf{100\% change-type accuracy at ${\sim}$15 tokens/pair} (74/75 regions deterministic, 98.9\% token savings), fixing both failure modes the VLM arm made — and a cross-vendor replication on qwen3.8-max reproduces the result exactly (100\%/0\%/100\%, same 1.3\% escalation). Offline replay of the tiered router over all 145 pairs shows \textbf{99.3\% of regions are fully deterministic}, with root-cause-first pair-level typing at \textbf{90.6\% end-to-end change-type accuracy at zero VLM tokens} (vs 82.7\% for largest-region-first typing). Code and dataset: \url{https://github.com/shidesheng0218/vlm-diff}
+Frontier vision-language models (VLMs) struggle with fine-grained visual differences, achieving only 62--78\% accuracy on subtle UI changes vs a 95\% human baseline. We propose a hybrid approach that leverages the UI domain's unique advantage: DOM structure as ground truth. Our pipeline localizes changed regions with deterministic DOM+pixel diffing (\textit{thresholded} no-change suppression: sub-noise-floor pixel deltas with no DOM signal are suppressed, above-floor deltas escalate; 0\% false positives on all 42 no-change pairs of a 185-pair dataset), then describes each region on a \textit{tiered} basis: regions the DOM diff fully explains (color, text, style, lifecycle, geometry) receive template-generated descriptions with zero tokens; only regions with no DOM signal (canvas repaints, SVG fills, image swaps) escalate to a VLM, which can rule them ``none'' end-to-end. Real-API MVPs (Kimi K3) confirm the architecture: a three-arm run shows +33pp recall over full-image VLM with 0\% false positives and refutes plain crop-then-classify (58--67\% vs 100\% conditional accuracy) — passing the detector's changed fields as a text hint recovers the gap (83.3\%). A four-arm run then validates the tiered pipeline end-to-end: \textbf{100\% change-type accuracy at ${\sim}$15 tokens/pair} (74/75 regions deterministic, 98.9\% token savings), and a cross-vendor replication on qwen3.8-max reproduces the result exactly. All headline rates now carry Clopper-Pearson confidence intervals, arm differences are tested with McNemar's exact test, and the blind judge is human-calibrated (30/30 pairs labeled). To address escalation circularity we validate on \textbf{real repositories} with git-diff ground truth: 6 commit-pair scenarios across two open-source repos yield 0 false positives and 0 misses, with genuine pixel-only changes (an icon file swap) escalating exactly as designed. Offline replay of the router over all 185 pairs shows \textbf{96.8\% of regions are fully deterministic} (the remainder are pixel-only by construction). Code, dataset, CLI, and MCP server: \url{https://github.com/shidesheng0218/vlm-diff}
 \end{abstract}
 
 \section{Introduction}
@@ -33,17 +33,19 @@ Recent work has explored using vision-language models (VLMs) for fine-grained im
 
 We therefore propose VLM-Diff, a tiered hybrid pipeline:
 \begin{enumerate}
-\item \textbf{Deterministic detection}: DOM diff + perceptual pixel diff fusion localizes candidate regions. If DOM reports zero changes, the pair is classified as unchanged \textit{regardless of pixel noise}.
+\item \textbf{Deterministic detection}: DOM diff + perceptual pixel diff fusion localizes candidate regions. If DOM reports zero changes, pixel deltas below a noise floor are suppressed as render noise; above-floor deltas (canvas repaints, image swaps) are treated as \textit{visual-only} changes and escalated.
 \item \textbf{Deterministic-first description}: regions whose DOM evidence fully explains the change receive template-generated descriptions with zero tokens.
-\item \textbf{VLM escalation}: only regions with no DOM signal (pixel-only repaints) are cropped and classified by a VLM.
+\item \textbf{VLM escalation}: regions with no DOM signal are cropped and classified by a VLM; a pair whose escalated regions are all classified ``none'' flips back to unchanged, keeping false-positive accounting honest end-to-end.
 \end{enumerate}
 
 \textbf{Contributions}:
 \begin{itemize}
-\item A UI regression benchmark with DOM snapshots + ground-truth rects (145 pairs, 6 fixtures, 24 mutation types), and a deterministic detection layer with 100\% recall on changed pairs and 0\% FP rate (confirmed)
+\item A UI regression benchmark with DOM snapshots + ground-truth rects (185 pairs, 7 fixtures, 28 mutation types — including pixel-only canvas/SVG/image mutations that only the escalation path can handle), and a deterministic detection layer with 100\% recall on changed pairs and 0\% FP rate on 42 no-change pairs (confirmed)
 \item A real-API three-arm MVP validating the architecture (+33pp recall, 0\% FP, 0\% run-to-run variance on detection) and \textit{refuting} naive crop-then-classify, while showing a DOM-field text hint recovers the gap
-\item A deterministic-first tiered description architecture in which 99.3\% of detected regions require no VLM call, achieving 90.6\% end-to-end change-type accuracy at zero token cost — with a root-cause attribution rule for pair-level typing in layout cascades
-\item Open-source implementation, evaluation framework, and a zero-cost CI regression gate on the escalation rate
+\item A deterministic-first tiered description architecture in which 96.8\% of detected regions require no VLM call, achieving 88.7\% end-to-end change-type accuracy at zero token cost — with a root-cause attribution rule for pair-level typing in layout cascades
+\item Real-world validation on open-source repositories with git-diff ground truth (6 commit-pair scenarios, 0 FP / 0 misses), answering the escalation-circularity objection with data
+\item Statistical rigor throughout: Clopper-Pearson confidence intervals on every rate, McNemar exact tests between arms, bootstrap CIs on judge score gaps, and human calibration of the LLM judge on all judged pairs
+\item Open-source implementation, CLI, MCP server for coding agents, evaluation framework, and a zero-cost CI regression gate on the escalation rate
 \end{itemize}
 
 \section{Related Work}
@@ -58,7 +60,7 @@ We therefore propose VLM-Diff, a tiered hybrid pipeline:
 
 \subsection{Dataset Generation}
 
-We render 6 realistic UI fixtures (card grid, form, navbar, data table, modal dialog, dashboard) in headless Chromium and apply 24 programmatic mutations across 7 categories:
+We render 7 realistic UI fixtures (card grid, form, navbar, data table, modal dialog, dashboard, and a \textit{media} page with \texttt{<canvas>}, \texttt{<svg>}, and \texttt{<img>} widgets) in headless Chromium and apply 28 programmatic mutations across 8 categories:
 
 \begin{itemize}
 \item \textbf{Spatial shift} (3/6/8/12/28px, horizontal + vertical, margin-first with transform fallback)
@@ -67,10 +69,11 @@ We render 6 realistic UI fixtures (card grid, form, navbar, data table, modal di
 \item \textbf{Text change} (similar-length, different, shortened, numeric)
 \item \textbf{Element add/remove} (first/last child)
 \item \textbf{Style change} (font-weight, border-radius, box-shadow, opacity)
-\item \textbf{No-change} (identical DOM, re-screenshot for AA noise)
+\item \textbf{Pixel-only} (v0.2): canvas bar-chart repaints (color and shape), SVG area fill via attribute, and image \texttt{src} swap — all change pixels with \textit{zero} captured DOM fields, so only the escalation path can handle them
+\item \textbf{No-change} (identical DOM; re-render, reload, and settle-time variants)
 \end{itemize}
 
-Each pair includes \texttt{before.png}/\texttt{after.png} (960$\times$500), \texttt{domBefore}/\texttt{domAfter} (JSON: element path, tag, id, rect, text, 7 computed styles), \texttt{groundTruthRect} (bbox of the mutated element), and category ground truth. Total: \textbf{145 pairs} (139 changed, 6 no-change). Layout-cascade effects (siblings displaced by an add/remove/move) are preserved: the DOM snapshot records every displaced element's rect, and ground-truth rects point at the mutated element, not the cascade.
+Each pair includes \texttt{before.png}/\texttt{after.png} (960$\times$500), \texttt{domBefore}/\texttt{domAfter} (JSON: element path, tag, id, rect, text, 7 computed styles), \texttt{groundTruthRect} (bbox of the mutated element), and category ground truth. Total: \textbf{185 pairs} (143 changed, 42 no-change). Two v0.1 weaknesses are addressed by construction: the dataset is no longer DOM-observable-only (the pixel-only category forces the escalation path), and the no-change denominator grows from 6 to 42, shrinking a 0\% FP rate's 95\% CI upper bound from ${\approx}$46\% to ${\approx}$8\%. Layout-cascade effects (siblings displaced by an add/remove/move) are preserved: the DOM snapshot records every displaced element's rect, and ground-truth rects point at the mutated element, not the cascade.
 
 \subsection{Stage 1: Deterministic Detection}
 
@@ -78,7 +81,7 @@ Each pair includes \texttt{before.png}/\texttt{after.png} (960$\times$500), \tex
 
 \textbf{Perceptual diff}. pixelmatch~\cite{pixelmatch} (threshold 0.15, \texttt{includeAA:false}) with connected-component grouping into candidate rects.
 
-\textbf{Fusion}. \textit{Zero DOM changes $\Rightarrow$ \texttt{changed:false}} — the no-change suppression rule. On all 139 changed pairs the detector fires (100\% recall) and on all 6 no-change pairs it stays silent (0\% FP), byte-identically across repeated runs. DOM change rects become primary candidates (corroborated by overlapping pixel regions where present); pixel-only regions are appended as fallback candidates.
+\textbf{Fusion}. The v0.1 rule suppressed \emph{all} pixel deltas when the DOM was unchanged — which made the escalation path unreachable for exactly the cases it was built for (canvas repaints change zero DOM fields). The v0.2 rule is thresholded: with zero DOM changes, a pixel delta below a noise floor $\tau$ (default 0.2\% of frame pixels, above measured re-render jitter and below any genuine repaint) is suppressed; above $\tau$ the pair is \textit{visual-only} and its pixel regions escalate to the VLM tier. On all 143 changed pairs the detector fires (100\% recall) and on all 42 no-change pairs it stays silent (0\% FP), byte-identically across repeated runs. DOM change rects become primary candidates (corroborated by overlapping pixel regions where present); pixel-only regions are appended as fallback candidates. Frames of differing sizes (real pages change height between versions) are normalized onto a common max-size canvas before comparison.
 
 \subsection{Stage 2: Tiered Description (Deterministic-First)}
 
@@ -90,11 +93,11 @@ The core contribution. Each candidate region is routed and described from the DO
 
 \textbf{Escalation policy}. The only escalation trigger is a \textit{pixel-only} region — a visual change with no DOM signal (canvas repaint, mid-frame animation). Escalated regions are cropped (16px padding) and classified by the VLM with the detector's changed fields as a text hint (\S\ref{sec:mvp}).
 
-The router's conservatism is deliberate and honest about circularity: because every mutation in the dataset is DOM-observable by construction, near-total determinism is expected \textit{on this benchmark}. The contribution is the architecture plus a calibrated escalation-rate measurement (\S\ref{sec:replay}); a zero-cost CI gate (\texttt{replay:assert}) fails any change that pushes previously-deterministic regions to the VLM.
+The router's conservatism is deliberate. The v0.1 benchmark was DOM-observable by construction, making near-total determinism circular; v0.2 breaks the circularity two ways: the dataset now contains pixel-only mutations that \textit{must} escalate (\S\ref{sec:replay}), and \S\ref{sec:realworld} measures escalation on real repositories. A zero-cost CI gate (\texttt{replay:assert}) fails any change that pushes previously-deterministic regions to the VLM.
 
 \subsection{Stage 3: VLM Classification (Escalation Path)}
 
-For escalated regions, the VLM receives cropped before/after windows (never full concatenated images, per VLM-SubtleBench) and a system prompt with the DOM-field hint, and returns strict JSON: \texttt{\{changeType, description, confidence\}}. Classifications are content-hash cached (crop pixels + prompt) with a swappable store.
+For escalated regions, the VLM receives cropped before/after windows (never full concatenated images, per VLM-SubtleBench) and a system prompt with the DOM-field hint (escalated pixel-only regions carry no hint — there is no DOM signal to pass), and returns strict JSON: \texttt{\{changeType, description, confidence\}}, where \texttt{changeType} may be \texttt{none} (no meaningful change in the crop). Classifications are content-hash cached (crop pixels + prompt + model identity, so switching models cannot return another model's verdicts) with a swappable store. \textbf{End-to-end aggregation}: a visual-only pair whose escalated regions are all classified \texttt{none} flips back to \texttt{changed:false} — the VLM tier, not the detector, has the final word on purely pixel-driven deltas, and false-positive accounting stays honest.
 
 \section{Evaluation}
 
@@ -107,9 +110,9 @@ For escalated regions, the VLM receives cropped before/after windows (never full
 \item \textbf{tieredPipeline}: fusion $\rightarrow$ deterministic-first description $\rightarrow$ VLM only for pixel-only regions
 \end{itemize}
 
-\subsection{Detection Results (All 145 Pairs, No API)}
+\subsection{Detection Results (All 185 Pairs, No API)}
 
-Detection is fully deterministic: \textbf{139/139 changed pairs detected, 0/6 false positives}. pixelDiffOnly flags 15--25\% of no-change pairs in published systems; DOM suppression eliminates this class entirely.
+Detection is fully deterministic: \textbf{143/143 changed pairs detected, 0/42 false positives} (95\% CI on the FP rate: [0\%, 8.4\%], Clopper-Pearson — vs v0.1's [0\%, 45.9\%] at n=6). pixelDiffOnly flags 15--25\% of no-change pairs in published systems; thresholded DOM suppression eliminates this class entirely.
 
 \subsection{Real-API MVP\label{sec:mvp}}
 
@@ -137,7 +140,7 @@ Avg input tok/pair & $\sim$1505 & $\sim$583 & $\sim$692 \\
 
 \subsection{Tiered Pipeline: Offline Replay\label{sec:replay}}
 
-Replaying the router over all 145 pairs with zero API calls:
+Replaying the router over all 185 pairs with zero API calls:
 
 \begin{table}[h]
 \centering
@@ -146,24 +149,25 @@ Replaying the router over all 145 pairs with zero API calls:
 \toprule
 \textbf{Kind} & \textbf{regions} & \textbf{det.} & \textbf{vlm} & \textbf{esc.} \\
 \midrule
-size-change & 136 & 136 & 0 & 0\% \\
+size-change & 142 & 136 & 6 & 4\% \\
 spatial-shift & 122 & 122 & 0 & 0\% \\
 element-remove & 122 & 122 & 0 & 0\% \\
-color-change & 94 & 94 & 0 & 0\% \\
+color-change & 103 & 94 & 9 & 9\% \\
 text-change & 62 & 62 & 0 & 0\% \\
 element-add & 41 & 41 & 0 & 0\% \\
 style-change & 34 & 30 & 4 & 12\% \\
+other (img swap) & 1 & 0 & 1 & 100\% \\
 \midrule
-\textbf{total} & \textbf{611} & \textbf{607} & \textbf{4} & \textbf{0.7\%} \\
+\textbf{total} & \textbf{627} & \textbf{607} & \textbf{20} & \textbf{3.2\%} \\
 \bottomrule
 \end{tabular}
-\caption{Region routing over 139 changed pairs. The only escalations are pixel-only repaint regions in three box-shadow pairs.}
+\caption{Region routing over 143 changed pairs (v0.2 dataset). Escalations: 4 box-shadow repaint bands, 14 canvas bar regions, 1 SVG fill, 1 image swap — all pixel-only by construction. The v0.1 rate was 0.7\% (4/611); the increase is the dataset doing its job.}
 \label{tab:replay}
 \end{table}
 
-Pair-level typing (offline, deterministic regions only): root-cause-first selection scores \textbf{90.6\%} (126/139) vs \textbf{82.7\%} for largest-region-first — and exceeds the full VLM pipeline's 83.3\% end-to-end accuracy on the MVP subset at \textit{zero} token cost. The gap between the two selection policies is precisely the cascade-attribution effect described in \S3.3: on element-add/remove and text-change pairs, the largest region is typically an innocent reflow follower.
+Pair-level typing (offline, deterministic regions only): root-cause-first selection scores \textbf{88.7\%} (126/143) vs \textbf{81.1\%} for largest-region-first — at \textit{zero} token cost. The gap between the two selection policies is precisely the cascade-attribution effect described in \S3.3: on element-add/remove and text-change pairs, the largest region is typically an innocent reflow follower.
 
-Cost: the tiered pipeline's expected VLM spend on DOM-observable regressions is $\sim$0, vs $\sim$692 input tokens/pair for the hinted pipeline (and $\sim$1505 for raw) — a $>$99\% reduction on this benchmark, bounded by the (unknown, higher) escalation rate on real pages containing canvas and third-party widgets.
+Cost: the tiered pipeline's expected VLM spend on DOM-observable regressions is $\sim$0, vs $\sim$692 input tokens/pair for the hinted pipeline (and $\sim$1505 for raw) — a $>$96\% reduction even with the pixel-only category in the mix, and the real-page measurement below bounds the rest.
 
 \subsection{Real-API Four-Arm Validation}
 
@@ -186,7 +190,9 @@ Tokens/pair (in+out) & \textbf{11+4} & 910+388 & 782+611 & 1505+196 \\
 \label{tab:fourarm}
 \end{table}
 
-The tiered arm wins on every axis. Its two VLM-arm counterparts' errors are precisely the cases the deterministic tier eliminates by construction: a container's reflow growth out-voting an element-add at pair level (root-cause attribution fixes this), and a border-color change mis-typed as a style change (the template names the property). The no-hint refutation replicates a third time (56.7\%, after 58.3/66.7\%), and raw's recall ceiling is stable while its conditional accuracy stays high — the VLM fails at \textit{finding}, not at \textit{describing}. Caveats: one model, one vendor, one run; both escalation rates measured (0.7\% over 145 pairs offline, 1.3\% over this subset live) apply to DOM-observable mutations, so real-page escalation will be higher.
+The tiered arm wins on every axis. Its two VLM-arm counterparts' errors are precisely the cases the deterministic tier eliminates by construction: a container's reflow growth out-voting an element-add at pair level (root-cause attribution fixes this), and a border-color change mis-typed as a style change (the template names the property). The no-hint refutation replicates a third time (56.7\%, after 58.3/66.7\%), and raw's recall ceiling is stable while its conditional accuracy stays high — the VLM fails at \textit{finding}, not at \textit{describing}.
+
+\textbf{Uncertainty and significance} (Clopper-Pearson / McNemar, \texttt{stats:report}): at n=30, recall and type accuracy carry 95\% CIs of [88.4\%, 100\%]; the 0\% FP rate at n=6 spans [0\%, 45.9\%] — the no-change expansion in v0.2 exists to shrink this. Pairwise: tiered vs raw recall is significant (discordants 7/0, $p=0.016$); tiered vs hinted type accuracy is \textit{not} (2/0, $p=0.5$) — the 6.7pp gap is within noise at this sample size; hint vs no-hint is significant (11/0, $p=0.001$). Caveats: one model, one vendor, one run; the escalation-circularity caveat is addressed by the pixel-only category (\S\ref{sec:replay}) and the real-repository validation (\S\ref{sec:realworld}).
 
 \subsection{Multi-Model Replication}
 
@@ -210,6 +216,54 @@ qwen3.8-max & 100 & 0 & \textbf{100} & 90.0 & 90.0 & 83.3 \\
 
 Three findings replicate across vendors. (1) The tiered arm wins identically on both models — its routing and descriptions are byte-identical; only the single escalated region's classification depends on the model. (2) The raw arm's recall ceiling (76.7/83.3\%) is a cross-vendor failure mode: VLMs fail at \textit{finding} subtle changes, not at describing them. (3) New: the crop-then-classify weakness is \textit{model-dependent} — Kimi collapses to 56.7\% without the DOM hint while qwen3.8-max holds 90\%, so the reference-frame amputation effect varies in severity by model; on both models, however, the hint arm never beats the tiered arm, and the deterministic tier sidesteps the output-variance problem entirely (qwen's hinted arm averages 2321 output tokens/pair, 6$\times$ Kimi's).
 
+\subsection{Live Re-Run on the Expanded Subset (v0.2)\label{sec:v02rerun}}
+
+The four-arm protocol was re-run on the expanded 51-pair subset (34 changed — including all 4 pixel-only media pairs — and 17 no-change), qwen3.8-max, with per-pair error isolation and checkpointing active (total cost \$1.36):
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Metric} & \textbf{tiered} & \textbf{+ hint} & \textbf{no hint} & \textbf{raw} \\
+\midrule
+Recall (34 changed) & \textbf{100} & 100 & 100 & 85.3 \\
+FP rate (17 no-change) & \textbf{0} & 0 & 0 & 0 \\
+Type accuracy & \textbf{97.1} & 91.2 & 85.3 & 79.4 \\
+Tokens/pair (in+out) & 112+131 & 737+1734 & 646+1320 & 1116+742 \\
+\bottomrule
+\end{tabular}
+\caption{v0.2 four-arm run on the expanded subset. Recall 95\% CI: [89.7\%, 100\%]; FP [0\%, 19.5\%]. The tiered arm's only type ``miss'' is a label-granularity artifact: on the image-swap pair (ground truth \texttt{other}) the VLM wrote ``the icon background changed from blue to red while the glyph and layout remained identical'' — factually correct, typed color-change.}
+\label{tab:v02}
+\end{table}
+
+Three additions over the v0.1 numbers. (1) \textit{The escalation path is exercised live}: all four pixel-only pairs were detected and classified correctly; subset escalation is 18.7\% (17/91 regions, dominated by the pixel-only media pairs by construction) and token savings vs the hinted arm stay at 90.2\%. (2) \textit{The FP denominator deepens}: 0/17 no-change pairs flagged, tightening the CI upper bound from 45.9\% to 19.5\%. (3) \textit{Significance, paired}: tiered vs raw recall shows 5/0 discordants ($p=0.063$, McNemar) — same direction as the v0.1 Kimi run's significant 7/0 ($p=0.016$), at lower power.
+
+\subsection{Real-World Validation\label{sec:realworld}}
+
+The escalation-circularity objection — benchmark mutations are DOM-observable by construction — requires out-of-distribution measurement. We validate on two real open-source repositories (mdn/beginner-html-site-styled, mdn/beginner-html-site-scripted): for each commit pair, both commits are checked out into git worktrees, each requested page rendered with headless Chromium, and the full detection + routing stack run offline (zero API calls), scored against git-diff ground truth over the page and its linked local stylesheets/scripts.
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{lllc}
+\toprule
+\textbf{Commit-pair scenario} & \textbf{git} & \textbf{pipeline} & \textbf{verdict} \\
+\midrule
+icon PNG swapped (same path) & changed & 1 reg., 1 esc. & TP \\
+CSS border/padding refactor & changed & 12 reg., 2 esc. & TP \\
+\texttt{lang="en"} added & changed & no change & silent \\
+font URL http$\to$https & changed & no change & silent \\
+JS fix + meta viewport & changed & no change & silent \\
+icon PNG swapped (repo 2) & changed & 1 reg., 1 esc. & TP \\
+\bottomrule
+\end{tabular}
+\caption{Real-repository validation, 6 scenarios, zero API calls. ``silent'' = source changed but zero pixels differ — a visual tool answering ``no change'' is correct; the harness reports it separately from a true miss.}
+\label{tab:realworld}
+\end{table}
+
+\textbf{0 false positives, 0 misses.} The two findings that matter for the circularity question: (1) genuine pixel-only changes (image-content swaps, the canvas-analog case) cross the noise floor with zero DOM signal and escalate exactly as designed — 100\% of their regions to the VLM tier; (2) DOM-explained real changes stay mostly deterministic (10 of 12 regions on the CSS refactor). Real-page escalation is therefore neither 0\% nor unbounded: it is concentrated in precisely the pixel-only class the architecture was built for. The harness also surfaced a real robustness bug fixed in v0.2: pages change height between versions, and size-mismatched frames are now normalized onto a common canvas instead of crashing the pixel diff.
+
 \subsection{Blind Judge: Description Quality}
 
 Type accuracy aside, is template text \textit{as good} as VLM text for a human triaging a regression? A blind judge (qwen3.8-max — a different vendor than the Kimi K3 that generated the VLM descriptions, avoiding self-preference bias) scored both arms on 30 pairs with labels randomized and ground truth provided:
@@ -232,17 +286,19 @@ readability & \textbf{4.60} & 4.50 \\
 \label{tab:judge}
 \end{table}
 
-Judge noise is itself instructive: on one pair the judge rated a factually \textit{wrong} VLM description (a container narrowing; ground truth is element-add) 5/4/5 over the template's correct one — so exact-match type scoring (tiered 100\% vs 93.3\%) remains the more reliable yardstick, and judge scores should be read as comparative signal. The template improvement path is explicit: carry the element's visible text through the diff and lead with it. Comparable quality at zero marginal cost completes the tiered arm's value proposition.
+\textbf{Bootstrap CIs} (10k seeded resamples of per-pair score gaps, tiered $-$ VLM): accuracy $\Delta=-0.37$ $[-0.80,+0.07]$, specificity $\Delta=+0.17$ $[-0.47,+0.83]$, readability $\Delta=+0.10$ $[-0.20,+0.40]$. Every dimension's interval straddles zero — the 14/14/2 split is statistically indistinguishable from parity, which \textit{is} the claim: templates match VLM description quality at ${\sim}$1\% of the tokens.
+
+\textbf{Human calibration}. The v0.1 methodology flagged this judge as uncalibrated; we close that debt. All 30 pairs were hand-labeled for factual correctness of both descriptions. Humans rated both descriptions correct on 27/30 pairs — consistent with the judge's aggregate parity verdict. The three exceptions are exactly the pairs where a description was factually wrong (a hedged border-radius direction, an unidentified text change, and a reflow follower described as the change — the documented ``container narrowing'' case), and the judge picked the VLM side in all three: its vlm lean concentrates on the wrong descriptions. Judge-vs-human correctness agreement is 66.7\% (tiered) / 80.0\% (VLM) at the score-$\geq$4 threshold. Conclusion: the judge is a usable aggregate instrument and a poor per-pair one; exact-match type scoring (tiered 100\% vs 93.3\%) remains the reliable yardstick. The template improvement path is explicit: carry the element's visible text through the diff and lead with it. Comparable quality at zero marginal cost completes the tiered arm's value proposition.
 
 \section{Discussion}
 
-\textbf{Limitations}. (1) \textit{Escalation-rate circularity}: the benchmark's mutations are DOM-observable by construction, so near-total determinism is expected here; real-page escalation (canvas, images, third-party widgets) is the open empirical question. (2) Synthetic fixtures: 6 hand-built pages; no responsive breakpoints, virtualized tables, or live widgets. (3) The no-change FP denominator is 6 (95\% CI upper bound $\approx$39\%). (4) MVP validated on one mid-tier model and 15 pairs; judge-scored description quality for template vs VLM phrasing is pending (type accuracy needs no judge — it is exact-match against ground truth). (5) Chromium only.
+\textbf{Limitations}. (1) \textit{Escalation-rate circularity} is partially retired, not eliminated: the pixel-only category and the 6 real-repo scenarios bound it, but third-party widgets (ads, chat, maps) — whose pixels change for reasons unrelated to the code under test — remain unvalidated. (2) Synthetic fixtures still dominate: 7 hand-built pages; no responsive breakpoints, virtualized tables, or live widgets; real-repo coverage is 6 scenarios across 2 repos, a start rather than a benchmark. (3) The no-change denominator is 42 (FP-rate 95\% CI upper bound $\approx$8\%) — meaningful, and still synthetic; no-change behavior on live pages with dynamic content is untested. (4) The calibrated judge agrees with human correctness labels on only 66.7--80.0\% of pairs — fine for aggregates, wrong too often for per-pair verdicts. (5) Changes below pixelmatch's sensitivity ($\sim$0.15 YIQ delta, e.g.\ a 2px stroke recolor at 0.04\% of frame pixels) are invisible by construction. (6) Chromium only.
 
-\textbf{Future work}. (1) Blind LLM-judge scoring of deterministic vs VLM description phrasing, and four-arm replication on Claude/GPT-class models. (2) Real-page validation: two-commit checkout pairs of open-source repos with git-diff ground truth. (3) Severity classification (breaking vs cosmetic) for CI gating. (4) Fine-tuning a specialist on the deterministic descriptions themselves — the tier provides free training labels.
+\textbf{Future work}. (1) Multi-model v0.2 replication: the expanded-subset re-run is so far single-model (qwen3.8-max; the account's kimi/GLM entitlements were denied at runtime) — the v0.1 Kimi/qwen pair remains the cross-vendor evidence. (2) Four-arm replication on Claude/GPT-class models. (3) Severity classification (breaking vs cosmetic) for CI gating. (4) Fine-tuning a specialist on the deterministic descriptions themselves — the tier provides free training labels. (5) GitHub Action packaging of the CLI/MCP surface.
 
 \section{Conclusion}
 
-DOM structure is not just a detection signal for UI regression — it is a description signal. Fusing DOM+pixel diffs localizes changes perfectly on our benchmark (100\% recall, 0\% FP); routing each region through a deterministic-first describer with root-cause attribution answers 99.3\% of regions with zero tokens, escalating to a VLM only where no DOM signal exists. The live four-arm runs confirm it end-to-end on two vendors' models: 100\% change-type accuracy at ${\sim}$15 tokens/pair, with identical escalation rates; a blind cross-vendor judge rates the zero-token template descriptions on par with VLM descriptions (14/14/2). Where VLM calls remain necessary, the detector's changed fields are the difference between refuted (56--90\%, model-dependent) and winning (90--93\%) classification. Code, dataset, and a zero-cost CI gate on the escalation rate are open-sourced.
+DOM structure is not just a detection signal for UI regression — it is a description signal. Fusing DOM+pixel diffs with thresholded suppression localizes changes perfectly on our expanded benchmark (100\% recall on 143 changed pairs, 0\% FP on 42 no-change pairs); routing each region through a deterministic-first describer with root-cause attribution answers 96.8\% of regions with zero tokens, escalating to a VLM only where no DOM signal exists — and on real repositories, escalation concentrates in exactly that pixel-only class (0 false positives and 0 misses across 6 commit-pair scenarios). The live four-arm runs confirm it end-to-end on two vendors' models: 100\% change-type accuracy at ${\sim}$15 tokens/pair; a human-calibrated blind cross-vendor judge rates the zero-token template descriptions statistically indistinguishable from VLM descriptions (14/14/2, all bootstrap CIs straddling zero). Every headline rate carries an exact confidence interval and arm differences are tested pairwise. Where VLM calls remain necessary, the detector's changed fields are the difference between refuted (56--90\%, model-dependent) and winning (90--93\%) classification. Code, dataset, CLI, MCP server, and a zero-cost CI gate on the escalation rate are open-sourced.
 
 \bibliographystyle{plain}
 \begin{thebibliography}{9}

@@ -35,3 +35,13 @@ test("computeCacheKey: same prompt context is stable", () => {
   const ctx = '{"fields":["borderRadius"]}';
   assert.equal(computeCacheKey(before, after, ctx), computeCacheKey(before, after, ctx));
 });
+
+test("computeCacheKey: model context changes the key (no cross-model cache poisoning)", () => {
+  const before = Buffer.from([1, 2, 3]);
+  const after = Buffer.from([4, 5, 6]);
+  const kimi = computeCacheKey(before, after, undefined, "dashscope/kimi/kimi-k3");
+  const qwen = computeCacheKey(before, after, undefined, "dashscope/qwen3.8-max");
+  const none = computeCacheKey(before, after);
+  assert.notEqual(kimi, qwen);
+  assert.notEqual(kimi, none);
+});

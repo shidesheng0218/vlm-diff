@@ -16,6 +16,7 @@ import { classifyRegion, classifyRegionCached, cropRegion } from "../classify/vl
 import type { ChangeKind, Classification, DomHint } from "../classify/vlm-classify.js";
 import { describeRegions } from "../describe/describe.js";
 import type { CacheStore } from "../cache/store.js";
+import { extractJson } from "../util/json.js";
 import type { PairRecord } from "./types.js";
 // re-exported for callers that only need the record shape from this module
 export type { PairRecord };
@@ -74,16 +75,16 @@ export async function runRawPairToVlm(provider: Provider, pair: PairRecord, data
   let changeType: ChangeKind | undefined;
   let description: string | undefined;
   let region: { x: number; y: number; w: number; h: number } | undefined;
-  try {
-    const cleaned = result.text.trim().replace(/^```json\s*/i, "").replace(/```$/, "");
-    const parsed = JSON.parse(cleaned);
+  const parsed = extractJson(result.text) as
+    | { changed?: boolean; changeType?: ChangeKind; description?: string; region?: { x: number; y: number; w: number; h: number } | null }
+    | undefined;
+  if (parsed) {
     changed = !!parsed.changed;
     changeType = parsed.changeType;
     description = parsed.description;
     region = parsed.region ?? undefined;
-  } catch {
-    // unparseable response counts as "no detection" for scoring purposes
   }
+  // unparseable response counts as "no detection" for scoring purposes
 
   return {
     pairId: pair.id,
@@ -159,6 +160,31 @@ export async function classifyDetectedRegions(
   );
 }
 
+/**
+ * End-to-end no-change aggregation: when detection was purely pixel-driven
+ * (no DOM evidence) and every classified region comes back "none", the pixel
+ * delta that triggered detection was not a real change (render jitter that
+ * crossed the floor, benign repaint). The pair verdict flips back to
+ * unchanged; classifications and token usage stay attached for auditing.
+ * Gated on `visualOnly` so a DOM-observable change can never be vetoed by a
+ * model hiccup — the DOM diff remains authoritative whenever it has signal.
+ */
+function aggregateNone(
+  result: BaselineResult,
+  classifications: RegionClassification[],
+  visualOnly: boolean,
+): BaselineResult {
+  if (visualOnly && classifications.length > 0 && classifications.every((c) => c.changeType === "none")) {
+    return {
+      ...result,
+      predictedChanged: false,
+      predictedChangeType: "none",
+      description: classifications[0].description,
+    };
+  }
+  return result;
+}
+
 export async function runFullPipeline(
   provider: Provider,
   pair: PairRecord,
@@ -205,18 +231,22 @@ export async function runFullPipeline(
   // `classifications`.
   const primary = classifications[0];
 
-  return {
-    pairId: pair.id,
-    baseline: "fullPipeline",
-    predictedChanged: true,
-    predictedRegions: detection.regions.map((r) => ({ x: r.x, y: r.y, w: r.w, h: r.h })),
-    predictedChangeType: primary.changeType,
-    description: primary.description,
+  return aggregateNone(
+    {
+      pairId: pair.id,
+      baseline: "fullPipeline",
+      predictedChanged: true,
+      predictedRegions: detection.regions.map((r) => ({ x: r.x, y: r.y, w: r.w, h: r.h })),
+      predictedChangeType: primary.changeType,
+      description: primary.description,
+      classifications,
+      inputTokens: classifications.reduce((s, c) => s + c.usage.inputTokens, 0),
+      outputTokens: classifications.reduce((s, c) => s + c.usage.outputTokens, 0),
+      cached: cache ? classifications.every((c) => c.cached === true) : undefined,
+    },
     classifications,
-    inputTokens: classifications.reduce((s, c) => s + c.usage.inputTokens, 0),
-    outputTokens: classifications.reduce((s, c) => s + c.usage.outputTokens, 0),
-    cached: cache ? classifications.every((c) => c.cached === true) : undefined,
-  };
+    detection.visualOnly,
+  );
 }
 
 /**
@@ -312,16 +342,20 @@ export async function runTieredPipeline(
 
   const primary = classifications[0];
 
-  return {
-    pairId: pair.id,
-    baseline: "tieredPipeline",
-    predictedChanged: true,
-    predictedRegions: detection.regions.map((r) => ({ x: r.x, y: r.y, w: r.w, h: r.h })),
-    predictedChangeType: primary.changeType,
-    description: primary.description,
+  return aggregateNone(
+    {
+      pairId: pair.id,
+      baseline: "tieredPipeline",
+      predictedChanged: true,
+      predictedRegions: detection.regions.map((r) => ({ x: r.x, y: r.y, w: r.w, h: r.h })),
+      predictedChangeType: primary.changeType,
+      description: primary.description,
+      classifications,
+      inputTokens: classifications.reduce((s, c) => s + c.usage.inputTokens, 0),
+      outputTokens: classifications.reduce((s, c) => s + c.usage.outputTokens, 0),
+      cached: cache ? vlmClassifications.every((c) => c.cached === true) : undefined,
+    },
     classifications,
-    inputTokens: classifications.reduce((s, c) => s + c.usage.inputTokens, 0),
-    outputTokens: classifications.reduce((s, c) => s + c.usage.outputTokens, 0),
-    cached: cache ? vlmClassifications.every((c) => c.cached === true) : undefined,
-  };
+    detection.visualOnly,
+  );
 }

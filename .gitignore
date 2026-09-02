@@ -1,5 +1,7 @@
 # Dataset and build artifacts
-data/
+data/*
+# human calibration labels are a research artifact and stay committed
+!data/judge-human-labels.json
 results/
 dist/
 .cache/
@@ -31,3 +33,6 @@ npm-debug.log*
 .playwright/
 playwright-report/
 test-results/
+
+# Editor session state (ZCode CLI)
+.zcode/

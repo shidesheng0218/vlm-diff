@@ -4,6 +4,8 @@
 
 A research prototype demonstrating that **deterministic DOM diffing + perceptual pixel diffing → VLM classification** significantly outperforms naive "feed-two-screenshots-to-VLM" approaches for UI visual regression detection.
 
+**v0.2 (2026-09):** the pipeline is now a usable tool, not just a benchmark — a `vlm-diff` CLI diffs any two screenshots, an MCP server gives coding agents a visual-regression sense, pixel-only changes (canvas repaints, image swaps) are covered end-to-end, and every headline number carries a confidence interval. See [CHANGELOG](CHANGELOG.md).
+
 📝 **[Read the full writeup on Dev.to](https://dev.to/shidesheng/building-a-visual-regression-tool-with-vlms-and-dom-diffing-1j4m)**
 
 ## Demo
@@ -30,7 +32,7 @@ Concatenating before/after images hurts performance in 9 out of 10 categories. Y
 **We can do better by leveraging the UI domain's unique advantage: DOM structure as ground truth.**
 
 1. **Deterministic detection**: DOM diff + pixel diff fusion localizes changed regions
-2. **No-change suppression**: If DOM didn't change, pixel noise is ignored (anti-aliasing, font rendering jitter)
+2. **Thresholded no-change suppression**: sub-noise-floor pixel deltas with no DOM signal are ignored (anti-aliasing, font rendering jitter); above-floor pixel deltas with no DOM signal (canvas repaints, image swaps) escalate to the VLM tier, which can still rule them "none" end-to-end
 3. **VLM only for classification**: Cropped regions (not full images) → model classifies change type and describes it
 
 This hybrid approach should:
@@ -71,17 +73,18 @@ graph TB
 
 ## Dataset
 
-**145 UI screenshot pairs** across 6 realistic fixtures (card grid, form, navbar, data table, modal dialog, dashboard) × 24 mutation types:
+**185 UI screenshot pairs** (v0.2) across 7 realistic fixtures (card grid, form, navbar, data table, modal dialog, dashboard, and a **media** page with `<canvas>`/`<svg>`/`<img>` widgets) × 28 mutation types:
 
 | Mutation Category | Count | Example |
 |-------------------|-------|---------|
 | Spatial shift (3–28px, horizontal + vertical) | 29 | Element moved via `margin`/`transform` |
-| Color change (background, text, border) | 24 | Button `#2563eb` → `#dc2626`, th color, panel border |
-| Size change (scale 0.9×–1.35×) | 24 | Element scaled via CSS `transform` |
+| Color change (background, text, border) | 26 | Button `#2563eb` → `#dc2626`, th color, panel border |
+| Size change (scale 0.9×–1.35×) | 25 | Element scaled via CSS `transform` |
 | Text change (similar, different, shorten, numeric) | 22 | "Project Falcon" → "Project Falcan", "$48,210" → "$52,980" |
 | Element add / remove (last, first) | 18 | Clone or delete a card/row/button from a container |
 | Style change (font-weight, border-radius, box-shadow, opacity) | 22 | Bold → normal, rounded → square, opacity 1 → 0.5 |
-| **No-change** (render noise only) | 6 | Identical DOM, re-screenshot for AA jitter |
+| **Pixel-only** (v0.2: canvas repaint ×2, SVG fill, image swap) | 4 | Canvas bars repainted with **zero DOM signal** — the VLM escalation path |
+| **No-change** (render noise only) | 42 | Identical DOM; re-render, reload, and settle-time variants (v0.1 had 6) |
 
 Each pair includes:
 - `before.png` / `after.png` (960×500 screenshots)
@@ -89,13 +92,17 @@ Each pair includes:
 - `groundTruthRect` (bbox of the specific mutated element, for IoU scoring — for `element-add`/`element-remove` this is the inserted/deleted child itself, not the container)
 - `kind` / `description` (mutation category and natural-language ground truth)
 
-The detection layer is exercised over the full dataset on every `dataset:gen`: **139/139 changed pairs detected, 0/6 false positives** (the no-change suppression rule holds on all 6 fixtures).
+v0.1's dataset was DOM-observable by construction, which made the near-total determinism result partially circular. The v0.2 expansion attacks that directly: the 4 pixel-only mutations can only be handled by the VLM escalation path, and the 42 no-change pairs deepen the false-positive denominator (the v0.1 0/6 FP rate's 95% CI upper bound was ≈46%; 0/42 brings it to ≈8%).
+
+The detection layer is exercised over the full dataset on every `dataset:gen`: **143/143 changed pairs detected, 0/42 false positives** (thresholded suppression holds on all fixtures; CI enforces the escalation-rate gate via `npm run replay:assert`).
 
 ## Predicted Performance
 
 > **⚠️ Validation Status**: The deterministic detection layer (Stage 1) has been confirmed on the full dataset: 139/139 changed pairs detected, 0/6 false positives on no-change pairs. The **three-arm MVP with real API calls** (15-pair subset: rawPairToVlm vs fullPipeline vs fullPipeline + DOM-field hint, Kimi K3 via DashScope, two runs) confirmed the recall and FP-rate predictions (+25pp, 0%), **refuted plain crop-then-classify** (58.3–66.7% vs 100% conditional classification accuracy), and showed that passing the detector's changed-fields as a text hint **recovers the gap**: 83.3% classification in both runs, beating rawPairToVlm end-to-end (83.3% vs 66.7–75.0%). A **four-arm MVP** (2026-08-28, 36 pairs, Kimi K3) then validated the tiered pipeline: **100% end-to-end type accuracy at ~15 tokens/pair** (98.9% token savings, 1.3% escalation), and a **multi-model replication** on qwen3.8-max reproduced the result exactly (100% / 0% / 100%, same 1.3% escalation). Details below.
 >
 > The eval harness (`npm run eval:run`) now scores description quality with an **independent judge model** (a different vendor than the one being evaluated, via `createJudgeProvider()`) to avoid self-preference bias — same-model judging was a known gap in the original methodology and is fixed as of [#1](https://github.com/shidesheng0218/vlm-diff/pull/1).
+>
+> **v0.2 statistical layer**: every rate below carries a Clopper-Pearson 95% CI (`npm run stats:report`), arm-vs-arm differences use McNemar exact tests, the blind judge was **human-calibrated** on all 30 judged pairs (see Blind Judge section), and the escalation-circularity objection is addressed with **real-repository validation** (see Real-World Validation section).
 
 ### MVP Validation (real API calls, 2026-08-19)
 
@@ -132,10 +139,12 @@ The tiered pipeline joined the comparison: 36 pairs (30 changed + 6 no-change, t
 
 | Metric | **tieredPipeline** | fullPipeline + hint | fullPipeline (no hint) | rawPairToVlm |
 |--------|--------------------|---------------------|------------------------|--------------|
-| **Recall** (30 changed) | **100%** | 100% | 100% | 76.7% |
-| **FP rate** (6 no-change) | **0%** | 0% | 0% | 0% |
-| **End-to-end type accuracy** | **100%** (30/30) | 93.3% (28/30) | 56.7% | 95.7% of detected (but 7 changed pairs missed) |
+| **Recall** (30 changed) | **100%** [88.4%, 100%] | 100% [88.4%, 100%] | 100% [88.4%, 100%] | 76.7% [57.7%, 90.1%] |
+| **FP rate** (6 no-change) | **0%** [0%, 45.9%] | 0% [0%, 45.9%] | 0% [0%, 45.9%] | 0% [0%, 45.9%] |
+| **End-to-end type accuracy** | **100%** [88.4%, 100%] (30/30) | 93.3% [77.9%, 99.2%] (28/30) | 56.7% [37.4%, 74.5%] | 95.7% of detected (but 7 changed pairs missed) |
 | **Avg tokens/pair** | **11 + 4** | 910 + 388 | 782 + 611 | 1505 + 196 |
+
+CIs are Clopper-Pearson exact (`npm run stats:report`). Read them honestly: 30 pairs pin recall/type accuracy reasonably, but with only 6 no-change pairs the 0% FP rate's upper bound reaches 45.9% — the v0.2 dataset expansion (42 no-change pairs, re-run protocol ready) exists precisely to shrink this.
 
 **What this run shows:**
 
@@ -145,7 +154,7 @@ The tiered pipeline joined the comparison: 36 pairs (30 changed + 6 no-change, t
 
 3. **rawPairToVlm's recall ceiling is stable.** It missed 7 of 30 changed pairs (3 small color changes, 2 tiny spatial shifts) — same failure class as both 15-pair runs — while its conditional accuracy among detected pairs stays high (95.7%). The VLM doesn't fail at describing; it fails at *finding*.
 
-Caveats: one model (Kimi K3), one vendor, one run; the offline-replay escalation rate (0.7% over all 145 pairs) and this run's rate (1.3% over 36 pairs) are both measured on DOM-observable mutations, so real-page escalation will be higher. Blind judge scoring of template vs VLM phrasing is still pending.
+Caveats: one model (Kimi K3), one vendor, one run. **Pairwise significance** (McNemar exact test, same 30 pairs): tiered vs raw recall is significant (discordants 7/0, p=0.016); tiered vs hint type accuracy is **not** significant (2/0, p=0.5) — the 6.7pp gap is within noise at n=30; hint vs no-hint type accuracy is significant (11/0, p=0.001). The escalation-circularity caveat ("both rates measured on DOM-observable mutations") is addressed head-on in the Real-World Validation section.
 
 ### Multi-Model Replication
 
@@ -164,6 +173,26 @@ The same four-arm protocol rerun on a second vendor's model (`qwen3.8-max` via D
 
 To add a model: `VLM_DIFF_MVP_TAG=<name> VLM_DIFF_MVP_PROVIDER=<provider> VLM_DIFF_MVP_MODEL=<model> npm run eval:mvp`, then `npm run compare:models`. Models must support image input — verify with `VLM_DIFF_MVP_LIMIT=2` first (some gateways silently drop images; the telltale is prompt-token counts that don't reflect the image).
 
+### v0.2 Live Re-Run (51 pairs, qwen3.8-max, 2026-09-02)
+
+The four-arm protocol re-run on the expanded 51-pair subset (34 changed — including all 4 pixel-only media pairs — and 17 no-change), with per-pair error isolation and pair-level checkpointing active. Total cost: **$1.36**.
+
+| Metric (95% CI) | **tieredPipeline** | fullPipeline + hint | fullPipeline (no hint) | rawPairToVlm |
+|---|---|---|---|---|
+| **Recall** (34 changed) | **100%** [89.7%, 100%] | 100% | 100% | 85.3% [68.9%, 95.0%] |
+| **FP rate** (17 no-change) | **0%** [0%, 19.5%] | 0% | 0% | 0% |
+| **End-to-end type accuracy** | **97.1%** [84.7%, 99.9%] | 91.2% | 85.3% | 79.4% |
+| **Avg tokens/pair** | 112+131 | 737+1734 | 646+1320 | 1116+742 |
+
+**What the v0.2 run adds:**
+
+1. **The escalation path is now exercised live.** All 4 pixel-only media pairs were detected and classified correctly by the VLM tier (canvas recolor → color-change, canvas reshape → size-change, SVG fill → color-change). Escalation on this subset is 18.7% (17/91 regions — 16 media regions + 1 shadow band), and token savings vs the hinted arm stay at **90.2%** even with the escalation load. The offline whole-dataset rate is 3.2%.
+2. **The FP denominator is meaningfully deepened**: 0/17 no-change pairs falsely flagged (CI upper bound 19.5%, vs 45.9% at n=6 in v0.1).
+3. **The tiered arm's only type "miss" is a label-granularity artifact**: on `media-image-src-swap` the ground truth kind is `other`, and the VLM wrote *"the icon background changed from blue to red while the glyph and layout remained identical"* — factually correct, typed color-change. Counted as a miss by exact match; arguably more useful than `other`.
+4. **McNemar, paired**: tiered vs raw recall has 5/0 discordants (p=0.063 — just above the 0.05 line at this sample size); tiered vs hint type accuracy 2/0 (p=0.5). The v0.1 Kimi run's significant recall gap (7/0, p=0.016) is the same direction at higher power.
+
+Note: the v0.2 run is single-model — this DashScope account has access only to qwen3.8-max (kimi/GLM are entitled-denied, qwen3.7-max is text-only). The v0.1 kimi+qwen pair remains the cross-vendor evidence.
+
 ### Blind Judge: Template vs VLM Description Quality
 
 The one question type accuracy can't answer: is template text *as good* as VLM text for a human triaging a regression? A blind judge (qwen3.8-max — a different vendor than the Kimi K3 that generated the VLM descriptions, avoiding self-preference bias; `npm run judge:mvp`) scored both arms' descriptions on 30 pairs, labels randomized per pair, ground truth provided:
@@ -181,7 +210,31 @@ A split decision — descriptions are comparable in quality. What the per-pair t
 - **The VLM wins accuracy on semantic naming**: it says *"The blue 'Confirm' button was removed"* where the template says *"An element (#btn-confirm) was removed (previously 'Confirm')"*. DOM ids are developer-speak; visible labels are human-speak. This is the clearest template improvement path: carry the element's visible text through the diff and lead with it.
 - **Judge noise is real**: on `dashboard-element-add` the judge gave 5/4/5 to a factually *wrong* VLM description ("became 76px narrower" — ground truth is element-add) over the template's correct one. Exact-match type scoring (where tiered is 100% vs 93.3%) remains the more reliable yardstick; judge scores should be read as comparative signal, not ground truth.
 
+**Bootstrap CIs on the score gaps** (10k seeded resamples, `npm run stats:report`): accuracy Δ −0.37 [−0.80, +0.07], specificity Δ +0.17 [−0.47, +0.83], readability Δ +0.10 [−0.20, +0.40] (tiered − vlm). Every dimension's CI straddles zero — the 14/14/2 split is statistically indistinguishable from parity, which *is* the finding: templates match VLM quality at ~1% of the tokens.
+
+**Human calibration (v0.2, closing the debt flagged since v0.1)**: all 30 pairs were hand-labeled for description correctness (`data/judge-human-labels.json`, scorer: `npm run judge:calibrate`). Findings:
+
+- Humans rated both descriptions correct on **27/30 pairs** — consistent with the judge's aggregate "no clear winner" conclusion.
+- The 3 pairs where humans disagreed with the judge are exactly where a description was factually wrong: the VLM hedged on border-radius direction (`card-list-style-change-radius`), failed to identify a text change (`card-list-text-change-similar`), and described a reflow follower as the change (`dashboard-element-add`) — the judge picked the VLM side in all three. The judge's vlm lean concentrates on the wrong descriptions.
+- Judge-vs-human correctness agreement is 66.7% (tiered) / 80.0% (vlm) at the "score ≥4 = correct" threshold: usable as an aggregate signal, too noisy for per-pair verdicts.
+
 All of this comes at zero marginal cost for the tiered arm: comparable description quality, 98.9% fewer tokens.
+
+### Real-World Validation (v0.2)
+
+The v0.1 caveat was escalation circularity: benchmark mutations are DOM-observable by construction, so 99% determinism was partly guaranteed. `scripts/validate-real-repo.ts` tests the pipeline against **real repositories** using git-diff ground truth: check out two commits into worktrees, render each page with Playwright, run the full detection + routing stack offline, and score against whether the page or its linked assets changed.
+
+Results across two real repos (mdn/beginner-html-site-styled, mdn/beginner-html-site-scripted), 6 commit-pair scenarios, zero API calls:
+
+| Scenario | Git ground truth | Pipeline | Verdict |
+|---|---|---|---|
+| Firefox icon file swapped (same `<img>` path, new pixels) | changed | changed, 1 region, **1 escalated** | TP — pure pixel-only path, exactly as designed |
+| CSS border/padding refactor | changed | changed, 12 regions, 2 escalated | TP — 83% deterministic on a real page |
+| `lang="en"` attribute added | changed | no change (0 pixels differ) | silent — correct: no *visual* change |
+| Google Fonts http→https URL swap | changed | no change (0 pixels differ) | silent |
+| JS innerHTML→textContent fix + meta viewport | changed | no change (first paint identical) | silent |
+
+**0 false positives, 0 misses across all scenarios.** The answer to the circularity question: on real pages, DOM-explained changes stay mostly deterministic (10/12 regions) while genuine pixel-only changes (image-content swaps — the canvas-class case) reliably escalate. The harness also distinguishes "source changed, visually silent" (3 of 6 scenarios) from true misses — a git diff is not a visual diff, and a visual tool answering "no change" to a `lang` attribute is right.
 
 ### Original predictions (for reference)
 
@@ -211,25 +264,44 @@ Two of three criteria confirmed with real API calls. The third produced the MVP'
 
 ## Usage
 
-### Quick Start (2 minutes, no dependencies)
+### Diff your own screenshots (CLI)
 
 ```bash
 git clone https://github.com/shidesheng0218/vlm-diff.git
 cd vlm-diff
-npm install
-npm run demo:quick
+npm install && npm run build
+
+# capture DOM snapshots + screenshots of any page (before/after your change)
+node dist/cli/main.js snapshot http://localhost:3000 --out-dom before.dom.json --out-png before.png
+# …apply the change…
+node dist/cli/main.js snapshot http://localhost:3000 --out-dom after.dom.json --out-png after.png
+
+# tiered diff: deterministic descriptions at 0 tokens, VLM only for pixel-only deltas
+node dist/cli/main.js diff before.png after.png --dom-before before.dom.json --dom-after after.dom.json
 ```
 
-This runs a simulated demo showing how DOM diff detects changes and suppresses false positives. No screenshots or API keys needed.
+- Without `--dom-*` the CLI degrades to pixel-only mode (every significant delta escalates to the VLM).
+- `--json` emits machine-readable output; exit codes are CI-friendly: **0** = no change, **1** = change detected, **2** = error/unresolved escalation.
+- `--no-vlm` runs detection+routing with zero API calls (escalated regions are listed as pending).
+- API keys come from the environment or a local `.env` file (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `MOONSHOT_API_KEY`, `DASHSCOPE_API_KEY`, `OPENCODE_API_KEY`); `--provider`/`--model` override the preset.
 
-### Full Demo (requires Playwright)
+### MCP server (give coding agents a visual-regression sense)
 
 ```bash
-npm run demo:generate  # Generate test screenshots
-npm run demo:detect    # Run Stage 1 detection (no VLM)
+claude mcp add vlm-diff -- node /path/to/vlm-diff/dist/mcp/server.js
 ```
 
-### Complete Pipeline
+Exposes two tools over stdio: `diff_screenshots` (the full tiered diff) and `snapshot_url` (capture a DOM snapshot + screenshot of a URL). Any MCP-compatible client works; `npm run mcp:smoke` walks the full handshake offline.
+
+### Demos (no API keys needed)
+
+```bash
+npm run demo:quick      # real algorithm on synthetic in-memory inputs
+npm run demo:generate   # render 3 demo pairs with Playwright
+npm run demo:detect     # run Stage-1 detection on them
+```
+
+### Evaluation & replication workflow
 
 ### 1. Install dependencies
 ```bash
@@ -240,22 +312,22 @@ npm install
 ```bash
 npm run dataset:gen
 ```
-Outputs `data/dataset.json` (145 pairs) + `data/images/*.png`
+Outputs `data/dataset.json` (185 pairs) + `data/images/*.png`
 
 ### 3. Run unit tests (no API calls)
 ```bash
 npm test
 ```
-117 tests covering DOM diff (with before/after field values), pixel diff, region fusion, deterministic description routing + templates, VLM classification stubs, DOM-hint prompting, multi-region classification, the tiered pipeline (root-cause typing, VLM escalation), classification caching, cost estimation, and provider selection (including the independent-judge fallback logic). Runs in CI on every push/PR.
+155 tests covering DOM diff (with before/after field values), pixel diff (including mismatched frame sizes), region fusion, the thresholded suppression rule, deterministic description routing + templates, VLM classification stubs, DOM-hint prompting, multi-region classification, the tiered pipeline (root-cause typing, VLM escalation, end-to-end none aggregation), the CLI primitives (diff orchestration, `.env` loading), statistics (Clopper-Pearson/McNemar/bootstrap), classification caching, cost estimation, and provider selection. Runs in CI on every push/PR, alongside the replay gate and CLI/MCP smoke tests.
 
-### 4. Run MVP evaluation (cheap smoke test, 15 pairs)
+### 4. Run MVP evaluation (cheap, 51 pairs)
 
 ```bash
 export MOONSHOT_API_KEY="sk-..."        # or ANTHROPIC_API_KEY / OPENAI_API_KEY / DASHSCOPE_API_KEY
 npm run eval:mvp
 ```
 
-Runs the full pipeline on a representative 15-pair subset and writes `results/mvp-report.json`. Cost: a few cents with a mid-tier model. Override provider/model with `VLM_DIFF_MVP_PROVIDER` / `VLM_DIFF_MVP_MODEL`.
+Runs all four arms on the 51-pair stratified subset (v0.2: includes the pixel-only media pairs and 17 no-change pairs) and writes `results/mvp-report.json`. Cost: ~$0.2–0.5 with a mid-tier model. Robustness: per-pair errors are isolated and results checkpoint after every pair — resume an interrupted run with `VLM_DIFF_MVP_RESUME=1`. Override provider/model with `VLM_DIFF_MVP_PROVIDER` / `VLM_DIFF_MVP_MODEL`; tag runs with `VLM_DIFF_MVP_TAG`. Follow up with `npm run stats:report` (CIs + McNemar) and `npm run compare:models`.
 
 ### 5. Run full evaluation (requires API key)
 ```bash
@@ -264,9 +336,9 @@ npm run eval:run
 ```
 
 This will:
-1. Run all three baselines on 145 pairs (~435 VLM calls)
+1. Run all four baselines (v0.2 includes the tiered arm) on 185 pairs with per-pair error isolation
 2. Compute metrics (recall, precision, FP rate, classification accuracy)
-3. Judge description quality via LLM-as-judge
+3. Judge description quality via LLM-as-judge (concurrency-capped)
 4. Write `results/report.json` **and** a self-contained `results/report.html` with inline before/after thumbnails, detected regions, and per-pair cost
 
 **Estimated cost**: $3-5 (Anthropic Opus 4.8) or $4-6 (OpenAI GPT-5) on a cold run — see [Cost Optimizations](#cost-optimizations) below for how re-runs get cheaper.
@@ -277,7 +349,7 @@ Re-running the eval against the same dataset (e.g. in CI on every PR) shouldn't 
 
 ### Classification cache
 
-`fullPipeline`'s VLM classification step is cached by content hash of the cropped before/after region plus the prompt context (e.g. the DOM hint), so hint and no-hint runs can't contaminate each other (`src/cache/`). Identical crops with identical prompts — same pixels, regardless of which pair they came from — skip the model call entirely:
+`fullPipeline`'s VLM classification step is cached by content hash of the cropped before/after region plus the prompt context (e.g. the DOM hint) **plus the model identity** (v0.2: switching models can no longer silently return another model's cached verdicts), so hint and no-hint runs can't contaminate each other (`src/cache/`). Identical crops with identical prompts and model — same pixels, regardless of which pair they came from — skip the model call entirely:
 
 ```bash
 npm run eval:run              # first run: all cache misses
@@ -299,26 +371,32 @@ export PRICING_OVERRIDES_JSON='{"claude-sonnet-5":{"inputPerMillion":3,"outputPe
 
 ### Why DOM Diff as Ground Truth?
 
-**The no-change suppression rule** (`src/detect/regions.ts:48-52`):
+**The thresholded no-change rule** (`src/detect/regions.ts`):
 ```typescript
 if (domChanges.length === 0) {
-  return { changed: false, regions: [], domChangeCount: 0, pixelRegionCount };
+  if (pixelChangedFraction < threshold) {
+    return { changed: false, ... };          // render noise, suppressed
+  }
+  // visual-only change (canvas repaint, image swap): escalate pixel regions
+  return { changed: true, regions: pixelRegions, visualOnly: true, ... };
 }
 ```
+
+v0.1 suppressed *everything* when the DOM was unchanged — which made the escalation path unreachable for exactly the cases it was built for. v0.2 splits the rule at a noise floor (default 0.2% of frame pixels, configurable): sub-floor deltas stay suppressed, above-floor deltas escalate to the VLM tier, and an end-to-end aggregation rule flips the pair back to "unchanged" if the VLM rules every escalated region "none" — so false-positive accounting stays honest.
 
 **Why this matters**: Pixel diff alone flags 15-25% of unchanged pairs as "changed" due to:
 - Font anti-aliasing (subpixel rendering varies by timing)
 - Input field focus rings (browser state)
 - Animated cursors in screenshots
 
-DOM diff eliminates these: if `document.body` structure didn't change, it's noise.
+DOM diff eliminates these: if `document.body` structure didn't change and the pixel delta is below the floor, it's noise.
 
-**Limitation**: This only works for **DOM-observable changes**. It won't catch:
-- Canvas repaints (pixel-level graphics)
-- CSS animations mid-frame (transform computed values aren't in snapshot)
+**Remaining limits** of the DOM layer:
+- CSS animations mid-frame (transform computed values aren't in the snapshot)
 - Cross-origin iframe contents (can't parse)
+- Pixel deltas below pixelmatch's own sensitivity (~0.15 YIQ delta) never register at all — e.g. a 2px SVG stroke recolor changes only ~0.04% of frame pixels and sits under any sane noise floor
 
-For those cases, pixel diff provides the fallback signal.
+Canvas repaints and image swaps — the v0.1 blind spot — are covered by the escalated pixel-only path (see the v0.2 pixel-only dataset pairs and the real-repo icon-swap validation).
 
 ### Why Crop-Then-Classify?
 
@@ -336,9 +414,9 @@ The newest iteration (`tieredPipeline` arm) inverts the assumption that every de
 - **Tier A (deterministic)**: colors, text (numeric vs wording phrasing), style properties, element lifecycle, and geometry — a position delta renders as "moved 28px right" regardless of *why* it moved. A batch describer applies root-cause attribution: geometry-only regions in a pair that also has a non-geometry change (e.g. siblings pushed when a card is removed) are worded as *"moved 24px up as part of a layout shift caused by a nearby change"*.
 - **Tier B (VLM)**: only pixel-only regions with no DOM signal (e.g. canvas repaints).
 
-**Offline router replay over all 145 pairs, zero API calls** (`npm run replay:router`): **99.3% of regions are fully deterministic** (607/611; the only escalations are 4 pixel-only repaint regions), and root-cause-first pair-level typing scores **90.6% end-to-end type accuracy with zero VLM tokens** (vs 82.7% for largest-region-first typing) — higher than the full VLM pipeline's 83.3% on the MVP subset.
+**Offline router replay over all 185 pairs, zero API calls** (`npm run replay:router`): **96.8% of regions are fully deterministic** (607/627; escalations are the 4 box-shadow repaint bands plus all 16 pixel-only media regions — canvas bars, SVG fill, image swap), and root-cause-first pair-level typing scores **88.7% end-to-end type accuracy with zero VLM tokens** (vs 81.0% for largest-region-first typing). The v0.1 figure was 99.3% — the drop is the point: the expanded dataset now contains changes that are pixel-only by construction, and they escalate exactly as designed (CI gates the rate at <5%).
 
-**Real-API confirmation (2026-08-28, four-arm MVP, Kimi K3)**: on 36 pairs the tiered arm scored **100% end-to-end type accuracy at ~15 tokens/pair** — 74/75 regions deterministic, 1 VLM call, **98.9% token savings** vs the hinted pipeline — while fixing both failure modes the hinted VLM arm made. See the Four-Arm MVP section for the full table. Still pending: blind LLM-judge scoring of template vs VLM description phrasing, and replication on other models.
+**Real-API confirmation (2026-08-28, four-arm MVP, Kimi K3)**: on 36 pairs the tiered arm scored **100% end-to-end type accuracy at ~15 tokens/pair** — 74/75 regions deterministic, 1 VLM call, **98.9% token savings** vs the hinted pipeline — while fixing both failure modes the hinted VLM arm made. See the Four-Arm MVP section for the full table. The blind judge comparison and cross-vendor replication (qwen3.8-max) followed; the v0.2 media fixture now exercises the escalation path inside the benchmark itself.
 
 ### Multi-Region Classification
 
@@ -377,7 +455,7 @@ Supports `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` auto-detection.
 | **VLM usage** | None (Applitools publicly opposes "LLM as comparator") | Crops only, for classification |
 | **False-positive handling** | Retry logic + dynamic content ignore patterns | DOM ground truth suppression |
 | **Explanation** | "12 pixels changed" | "Button background changed red→blue" |
-| **CI integration** | ✅ GitHub/GitLab/Jenkins | ❌ Node.js library only |
+| **CI integration** | ✅ GitHub/GitLab/Jenkins | ⚠️ CLI with CI exit codes (0/1/2) + MCP server; no turnkey GitHub Action yet |
 | **Multi-browser** | ✅ Cloud rendering | ❌ Playwright-local only |
 | **Baseline management** | ✅ Approval workflows | ❌ No versioning |
 
@@ -410,28 +488,29 @@ Could be composed: DiffShot decides *what* to test, this prototype detects *how*
 
 ## Limitations & Future Work
 
-### Known Issues
+### Resolved in v0.2
 
-1. **Mutation coverage is CSS/DOM-level only**: 24 mutation types, but real regressions also include:
-   - Image content swaps (same `<img>` tag, different `src`)
-   - SVG/canvas repaints
-   - Third-party widget breakage (ads, chat, maps)
+1. **Pixel-only changes were a blind spot** → the suppression rule is now thresholded; canvas repaints, SVG fills, and image swaps are dataset mutations and validated on real repos (icon-swap scenario).
+2. **No-change denominator of 6** → 42 no-change pairs (CI upper bound of a 0% FP rate drops from ≈46% to ≈8%).
+3. **Escalation circularity** → real-repository validation with git-diff ground truth (see Real-World Validation).
+4. **Point estimates without uncertainty** → Clopper-Pearson CIs, McNemar tests, and bootstrap CIs throughout (`npm run stats:report`).
+5. **Uncalibrated LLM judge** → human calibration on all 30 judged pairs; judge confirmed noisy per-pair but directionally sound in aggregate.
 
-2. **No-change sample is still small**: 6 of 145 pairs are "no-change" (4%), so the reported 0% false-positive rate has a small denominator (95% CI upper bound ≈ 39%). More no-change pairs — and no-change pairs on *real* pages with live widgets — would make that number meaningful rather than anecdotal.
+### Known Issues (remaining)
 
-3. **Fixtures are synthetic**: 6 hand-built pages (card list, form, navbar, table, modal, dashboard). Doesn't cover:
-   - Tables with 100+ rows / virtualization
-   - Responsive breakpoints (mobile vs desktop)
-   - Real production pages with ads, timestamps, A/B buckets
-
-4. **No multi-browser validation**: Playwright on Chromium only. Firefox/Safari font rendering differs, affecting pixel diff.
+1. **Third-party widget breakage** (ads, chat, maps) is still uncovered — their pixels change for reasons unrelated to your code, and the VLM tier would have to learn to dismiss them.
+2. **Synthetic fixtures dominate**: the 7 hand-built pages don't cover tables with 100+ rows / virtualization, responsive breakpoints, or production pages with timestamps and A/B buckets. The real-repo validation (6 scenarios) is a start, not a benchmark.
+3. **No multi-browser validation**: Playwright on Chromium only. Firefox/Safari font rendering differs, affecting pixel diff.
+4. **Judge remains a weak per-pair instrument** (66.7–80% agreement with human correctness labels). Aggregate comparisons are defensible; per-pair judge verdicts are not.
+5. **Sub-sensitivity changes**: pixel deltas below pixelmatch's YIQ threshold (~0.15) are invisible by construction — the 2px SVG-stroke recolor in the dataset exploration is the canonical example.
+6. **v0.2 live re-run is single-model so far**: completed on qwen3.8-max (see v0.2 Live Re-Run); kimi/GLM entitlement on this gateway is pending, so the v0.1 kimi+qwen pair remains the cross-vendor evidence until a second vendor's key is available.
 
 ### Roadmap
 
-**Phase 1 (current)**: Research prototype validates hypothesis  
-**Phase 2 (3-6 weeks)**: Expand dataset to 100-150 pairs, run real eval, write arXiv paper  
-**Phase 3 (2-3 months)**: Fine-tune specialist model (GPT-4o or Claude-distilled), compare to zero-shot frontier  
-**Phase 4 (6+ months)**: Product MVP (GitHub Action, baseline management, CI integration)
+**Phase 1 ✅**: Research prototype validates hypothesis  
+**Phase 2 ✅ (v0.2)**: Usable tool — CLI, MCP server, expanded dataset, statistical rigor, real-repo validation  
+**Phase 3 (next)**: Fine-tune a specialist on the deterministic tier's free training labels; GitHub Action packaging  
+**Phase 4**: Product MVP (baseline management, approval workflows, cloud rendering)
 
 ## Citation
 
@@ -442,9 +521,10 @@ If you use this work, please cite:
   title={VLM-Diff: Visual Regression Detection with Structural Ground Truth},
   author={[Your Name]},
   year={2026},
-  month={August},
+  month={September},
+  version={0.2.0},
   url={https://github.com/shidesheng0218/vlm-diff},
-  note={Research prototype demonstrating DOM-diff + VLM classification for UI regression detection}
+  note={Deterministic-first UI diffing with tiered VLM escalation: CLI, MCP server, dataset, and evaluation framework}
 }
 ```
 

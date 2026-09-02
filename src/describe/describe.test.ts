@@ -22,30 +22,30 @@ function region(overrides: Partial<CandidateRegion> = {}): CandidateRegion {
 // ── routing ──
 
 test("route: fully-explained style change stays deterministic", () => {
-  assert.equal(routeRegion(region(), 1), "deterministic");
+  assert.equal(routeRegion(region()), "deterministic");
 });
 
 test("route: pixel-only region escalates", () => {
-  assert.equal(routeRegion(region({ source: "pixel", domChangedFields: undefined }), 0), "vlm");
+  assert.equal(routeRegion(region({ source: "pixel", domChangedFields: undefined })), "vlm");
 });
 
 test("route: lone position change stays deterministic", () => {
   assert.equal(
-    routeRegion(region({ domChangedFields: ["position"], rectDelta: { dx: 6, dy: 0, dw: 0, dh: 0 } }), 1),
+    routeRegion(region({ domChangedFields: ["position"], rectDelta: { dx: 6, dy: 0, dw: 0, dh: 0 } })),
     "deterministic",
   );
 });
 
 test("route: position change in a cascade stays deterministic (follower wording)", () => {
   assert.equal(
-    routeRegion(region({ domChangedFields: ["position"], rectDelta: { dx: 6, dy: 0, dw: 0, dh: 0 } }), 3),
+    routeRegion(region({ domChangedFields: ["position"], rectDelta: { dx: 6, dy: 0, dw: 0, dh: 0 } })),
     "deterministic",
   );
 });
 
 test("route: combined move+resize stays deterministic", () => {
   assert.equal(
-    routeRegion(region({ domChangedFields: ["position", "size"], rectDelta: { dx: 5, dy: 2, dw: 10, dh: 4 } }), 1),
+    routeRegion(region({ domChangedFields: ["position", "size"], rectDelta: { dx: 5, dy: 2, dw: 10, dh: 4 } })),
     "deterministic",
   );
 });
@@ -307,13 +307,13 @@ test("describeRegions: combined move+resize picks the dominant axis", () => {
 // ── describeRegion (router + describer composed) ──
 
 test("describeRegion: deterministic path composes", () => {
-  const d = describeRegion(region(), 1);
+  const d = describeRegion(region());
   assert.equal(d.route, "deterministic");
   assert.equal(d.changeType, "color-change");
 });
 
 test("describeRegion: escalation carries a reason", () => {
-  const d = describeRegion(region({ source: "pixel", domChangedFields: undefined }), 0);
+  const d = describeRegion(region({ source: "pixel", domChangedFields: undefined }));
   assert.equal(d.route, "vlm");
   assert.match(d.reason!, /pixel-only/);
 });

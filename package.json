@@ -1,13 +1,17 @@
 {
   "name": "vlm-diff-eval",
-  "version": "0.1.0",
-  "description": "Research prototype: deterministic detection + VLM classification for fine-grained UI screenshot diffing",
+  "version": "0.2.0",
+  "description": "Deterministic-first UI screenshot diffing: DOM+pixel detection, tiered descriptions, CLI and MCP server for coding agents",
   "private": true,
   "type": "module",
+  "bin": {
+    "vlm-diff": "dist/cli/main.js",
+    "vlm-diff-mcp": "dist/mcp/server.js"
+  },
   "scripts": {
     "build": "tsc",
     "test": "tsc && node --test dist/**/*.test.js",
-    "postbuild": "mkdir -p dist/dataset && cp -r src/dataset/fixtures dist/dataset/",
+    "postbuild": "node scripts/postbuild.mjs",
     "dataset:gen": "npm run build && node dist/dataset/generate.js",
     "eval:run": "npm run build && node dist/eval/run.js",
     "eval:mvp": "npm run build && node dist/eval/run-mvp.js",
@@ -15,20 +19,26 @@
     "replay:router": "tsx scripts/router-replay.ts",
     "replay:assert": "tsx scripts/router-replay.ts --assert-escalation-under=0.05",
     "compare:models": "tsx scripts/compare-models.ts",
+    "stats:report": "tsx scripts/stats-report.ts",
     "demo:quick": "tsx scripts/demo-quick.ts",
     "demo:generate": "tsx scripts/demo-generate.ts",
-    "demo:detect": "tsx scripts/demo-detect.ts"
+    "demo:detect": "tsx scripts/demo-detect.ts",
+    "mcp:server": "node dist/mcp/server.js",
+    "mcp:smoke": "npm run build && tsx scripts/mcp-smoke.ts",
+    "judge:calibrate": "tsx scripts/judge-calibration.ts"
   },
   "engines": {
     "node": ">=20"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.68.0",
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "gif.js.optimized": "^1.0.1",
     "openai": "^4.77.0",
     "pixelmatch": "^7.1.0",
     "playwright": "^1.62.1",
-    "pngjs": "^7.0.0"
+    "pngjs": "^7.0.0",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@types/node": "^22.10.5",

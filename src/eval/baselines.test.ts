@@ -4,7 +4,7 @@ import { PNG } from "pngjs";
 import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { classifyDetectedRegions, MAX_REGIONS_TO_CLASSIFY, runTieredPipeline } from "./baselines.js";
+import { classifyDetectedRegions, MAX_REGIONS_TO_CLASSIFY, runFullPipeline, runTieredPipeline } from "./baselines.js";
 import type { PairRecord } from "./types.js";
 import { scriptedProvider } from "../test-utils.js";
 import { MemoryCacheStore } from "../cache/store.js";
@@ -120,8 +120,9 @@ test("classifyDetectedRegions: cache hits zero out usage on the second run", asy
 });
 
 test("MAX_REGIONS_TO_CLASSIFY covers the whole dataset's max region count", async () => {
-  // the dataset tops out at 6 regions per pair (element-remove in card-list)
-  assert.ok(MAX_REGIONS_TO_CLASSIFY >= 6);
+  // v0.1 topped out at 6 regions per pair (element-remove in card-list);
+  // the v0.2 canvas repaint produces 8 separate bar regions
+  assert.ok(MAX_REGIONS_TO_CLASSIFY >= 8);
 });
 
 // ── runTieredPipeline ──
@@ -279,6 +280,90 @@ test("runTieredPipeline: pair-level type prefers the root cause over a larger re
     const follower = result.classifications!.find((c) => c.changeType === "size-change");
     assert.ok(follower);
     assert.match(follower!.description!, /as part of a layout shift/);
+  } finally {
+    await rm(dataDir, { recursive: true, force: true });
+  }
+});
+
+// ── visual-only pairs (v0.2 relaxed suppression) ──
+
+async function writeVisualOnlyFixture(): Promise<{ dataDir: string; pair: PairRecord }> {
+  const before = new PNG({ width: 200, height: 200 });
+  fillRect(before, 0, 0, 200, 200, [255, 255, 255]);
+  const after = new PNG({ width: 200, height: 200 });
+  fillRect(after, 0, 0, 200, 200, [255, 255, 255]);
+  // 60×60 repaint = 9% of the frame: a canvas-style repaint, zero DOM signal
+  fillRect(after, 70, 70, 60, 60, [37, 99, 235]);
+
+  const dataDir = await mkdtemp(join(tmpdir(), "vlm-diff-visual-"));
+  await writeFile(join(dataDir, "before.png"), PNG.sync.write(before));
+  await writeFile(join(dataDir, "after.png"), PNG.sync.write(after));
+  const pair: PairRecord = {
+    id: "visual-only-test",
+    fixture: "test.html",
+    mutationId: "canvas-repaint",
+    kind: "other",
+    magnitude: "large",
+    description: "canvas repaint with no DOM signal",
+    before: "before.png",
+    after: "after.png",
+    domBefore: JSON.stringify([domNode("host")]),
+    domAfter: JSON.stringify([domNode("host")]), // identical DOM
+  };
+  return { dataDir, pair };
+}
+
+test("runTieredPipeline: visual-only pair escalates and keeps a real VLM-confirmed change", async () => {
+  const provider = scriptedProvider([okTurn("color-change")]);
+  const { dataDir, pair } = await writeVisualOnlyFixture();
+  try {
+    const result = await runTieredPipeline(provider, pair, dataDir);
+
+    assert.equal(provider.calls.length, 1); // the pixel-only region escalated
+    assert.equal(result.predictedChanged, true);
+    assert.equal(result.predictedChangeType, "color-change");
+    assert.equal(result.classifications!.length, 1);
+    assert.equal(result.classifications![0].route, "vlm");
+    assert.ok(result.inputTokens > 0);
+  } finally {
+    await rm(dataDir, { recursive: true, force: true });
+  }
+});
+
+test("runTieredPipeline: visual-only pair flips back to unchanged when the VLM rules none", async () => {
+  const provider = scriptedProvider([okTurn("none")]);
+  const { dataDir, pair } = await writeVisualOnlyFixture();
+  try {
+    const result = await runTieredPipeline(provider, pair, dataDir);
+
+    assert.equal(provider.calls.length, 1);
+    assert.equal(result.predictedChanged, false);
+    assert.equal(result.predictedChangeType, "none");
+    // classifications and usage stay attached for auditing
+    assert.equal(result.classifications!.length, 1);
+    assert.ok(result.inputTokens > 0);
+  } finally {
+    await rm(dataDir, { recursive: true, force: true });
+  }
+});
+
+test("runFullPipeline: DOM-explained pair is never vetoed by an all-none VLM verdict", async () => {
+  // DOM says backgroundColor changed; a confused VLM answers "none". The DOM
+  // diff is authoritative, so the pair verdict must stay changed even though
+  // the model's "none" is preserved verbatim as the pair-level type.
+  const provider = scriptedProvider([okTurn("none")]);
+  const before = new PNG({ width: 200, height: 200 });
+  fillRect(before, 0, 0, 200, 200, [255, 255, 255]);
+  const after = new PNG({ width: 200, height: 200 });
+  fillRect(after, 0, 0, 200, 200, [255, 255, 255]);
+  fillRect(after, 10, 10, 40, 40, [220, 38, 38]);
+
+  const { dataDir, pair } = await writePairFixture(before, after);
+  try {
+    const result = await runFullPipeline(provider, pair, dataDir);
+
+    assert.equal(result.predictedChanged, true); // DOM evidence wins
+    assert.equal(result.predictedChangeType, "none"); // model answer preserved
   } finally {
     await rm(dataDir, { recursive: true, force: true });
   }

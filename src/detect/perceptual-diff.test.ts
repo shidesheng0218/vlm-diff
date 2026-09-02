@@ -58,6 +58,19 @@ test("groupRegions: sub-threshold noise is filtered out", () => {
   assert.equal(regions.length, 0);
 });
 
+test("diffImages: mismatched frame sizes are normalized instead of crashing", () => {
+  // real pages change height between versions; the added strip must register
+  // as change, not throw
+  const a = solidPng(50, 50, [255, 255, 255]);
+  const b = solidPng(80, 60, [255, 255, 255]);
+  const { changedCount, width, height } = diffImages(a, b);
+  assert.equal(width, 80);
+  assert.equal(height, 60);
+  // the 30×50 right strip plus the 80×10 bottom strip compare against
+  // transparent black (allow some anti-aliasing leniency at the edges)
+  assert.ok(changedCount > 1500, `changedCount was ${changedCount}`);
+});
+
 test("groupRegions: two well-separated patches are reported as two regions", () => {
   const png = new PNG({ width: 100, height: 100 });
   for (let i = 0; i < 100 * 100; i++) {

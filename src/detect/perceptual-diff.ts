@@ -18,9 +18,22 @@ export interface PixelRegion {
 const MIN_REGION_AREA_FRACTION = 0.001; // filter out sub-0.1%-of-frame noise
 
 export function diffImages(beforePng: Buffer, afterPng: Buffer): { mask: Uint8Array; width: number; height: number; changedCount: number } {
-  const before = PNG.sync.read(beforePng);
-  const after = PNG.sync.read(afterPng);
-  const { width, height } = before;
+  const rawBefore = PNG.sync.read(beforePng);
+  const rawAfter = PNG.sync.read(afterPng);
+  // Real pages change height/width between versions (content added, viewport
+  // differences). Normalize both frames onto a common max-size canvas — the
+  // added/removed strips compare against transparent black and register as
+  // changed pixels instead of crashing pixelmatch.
+  const width = Math.max(rawBefore.width, rawAfter.width);
+  const height = Math.max(rawBefore.height, rawAfter.height);
+  const normalize = (src: PNG): PNG => {
+    if (src.width === width && src.height === height) return src;
+    const out = new PNG({ width, height }); // zero-filled: transparent black
+    PNG.bitblt(src, out, 0, 0, src.width, src.height, 0, 0);
+    return out;
+  };
+  const before = normalize(rawBefore);
+  const after = normalize(rawAfter);
   const diff = new PNG({ width, height });
 
   const changedCount = pixelmatch(before.data, after.data, diff.data, width, height, {
@@ -82,6 +95,22 @@ export function groupRegions(mask: Uint8Array, width: number, height: number): P
   }
 
   return mergeOverlapping(regions);
+}
+
+/** Bounding box of every changed pixel in the mask, or null when the mask is empty. */
+export function maskBounds(mask: Uint8Array, width: number, height: number): { x: number; y: number; w: number; h: number } | null {
+  let minX = width, maxX = -1, minY = height, maxY = -1;
+  for (let i = 0; i < mask.length; i++) {
+    if (mask[i] === 0) continue;
+    const x = i % width;
+    const y = Math.floor(i / width);
+    if (x < minX) minX = x;
+    if (x > maxX) maxX = x;
+    if (y < minY) minY = y;
+    if (y > maxY) maxY = y;
+  }
+  if (maxX < 0) return null;
+  return { x: minX, y: minY, w: maxX - minX + 1, h: maxY - minY + 1 };
 }
 
 /** Merge regions whose bounding boxes overlap or sit within a small gap of each other. */

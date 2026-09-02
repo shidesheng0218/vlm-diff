@@ -46,10 +46,9 @@ function isGeometryOnly(region: CandidateRegion): boolean {
 
 /**
  * Route one candidate region. Escalation is conservative by design: only
- * regions with no DOM evidence go to the VLM. `domRegionCount` is accepted
- * for API symmetry with describeRegion() and future escalation policies.
+ * regions with no DOM evidence go to the VLM.
  */
-export function routeRegion(region: CandidateRegion, domRegionCount: number): Route {
+export function routeRegion(region: CandidateRegion): Route {
   if (region.source === "pixel") {
     return "vlm"; // no DOM signal — nothing to describe deterministically
   }
@@ -274,8 +273,8 @@ export function describeRegions(regions: CandidateRegion[]): RegionDescription[]
  * Route + describe one region. Standalone form of describeRegions for
  * single-region use; caller must handle the "vlm" route.
  */
-export function describeRegion(region: CandidateRegion, domRegionCount: number): RegionDescription {
-  if (routeRegion(region, domRegionCount) === "deterministic") {
+export function describeRegion(region: CandidateRegion): RegionDescription {
+  if (routeRegion(region) === "deterministic") {
     return describeRegions([region])[0];
   }
   return {

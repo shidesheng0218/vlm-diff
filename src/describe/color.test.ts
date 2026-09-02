@@ -32,6 +32,12 @@ test("colorName: danger red maps to red", () => {
   assert.equal(colorName("rgb(220, 38, 38)"), "red");
 });
 
+test("colorName: Tailwind blue-300 maps to light blue, not light gray", () => {
+  // regression: the palette previously lacked a light-blue anchor, so
+  // rgb(147,197,253) was nearer to "light gray" (found via judge calibration)
+  assert.equal(colorName("rgb(147, 197, 253)"), "light blue");
+});
+
 test("colorName: white and near-white surfaces map to white", () => {
   assert.equal(colorName("rgb(255, 255, 255)"), "white");
   assert.equal(colorName("rgb(249, 250, 251)"), "white");

@@ -1,113 +1,96 @@
 #!/usr/bin/env tsx
 /**
- * Simplified demo: Show detection without generating screenshots
- * Uses mock data to demonstrate the algorithm
+ * Quick demo: runs the REAL detection + deterministic description on
+ * synthetic in-memory snapshots and PNGs. No screenshots, no API calls,
+ * no Playwright — the smallest possible proof that the pipeline works.
  * Run: npm run demo:quick
  */
 
-console.log('🔍 VLM-Diff Quick Demo (Simulated)\n');
-console.log('This shows how the detection algorithm works without needing screenshots.\n');
-console.log('━'.repeat(60));
+import { PNG } from "pngjs";
+import { detect } from "../src/detect/regions.js";
+import { describeRegions } from "../src/describe/describe.js";
+import type { DomNode } from "../src/detect/dom-diff.js";
 
-// Simulate DOM snapshots
-const mockDomBefore = {
-  elements: [
-    {
-      path: 'DIV:0>BUTTON:0',
-      tag: 'BUTTON',
-      id: 'submit-btn',
-      className: 'btn',
-      text: 'Submit',
-      rect: { x: 40, y: 100, w: 120, h: 40 },
-      style: {
-        color: 'rgb(255, 255, 255)',
-        backgroundColor: 'rgb(37, 99, 235)', // blue
-        fontWeight: '400',
-        borderRadius: '8px',
-      },
-    },
-  ],
-};
-
-const mockDomAfter = {
-  elements: [
-    {
-      path: 'DIV:0>BUTTON:0',
-      tag: 'BUTTON',
-      id: 'submit-btn',
-      className: 'btn',
-      text: 'Submit',
-      rect: { x: 40, y: 100, w: 120, h: 40 },
-      style: {
-        color: 'rgb(255, 255, 255)',
-        backgroundColor: 'rgb(220, 38, 38)', // red - CHANGED!
-        fontWeight: '400',
-        borderRadius: '8px',
-      },
-    },
-  ],
-};
-
-const mockDomNoChange = {
-  elements: [
-    {
-      path: 'DIV:0>H1:0',
-      tag: 'H1',
-      id: 'title',
-      className: '',
-      text: 'Welcome',
-      rect: { x: 40, y: 40, w: 200, h: 32 },
-      style: {
-        color: 'rgb(17, 24, 39)',
-        backgroundColor: 'rgba(0, 0, 0, 0)',
-        fontWeight: '700',
-        borderRadius: '0px',
-      },
-    },
-  ],
-};
-
-console.log('\n📋 Demo 1: Color Change Detection\n');
-console.log('Before: backgroundColor = rgb(37, 99, 235) [blue]');
-console.log('After:  backgroundColor = rgb(220, 38, 38) [red]');
-
-// Simulate DOM diff
-const changedFields: string[] = [];
-const elemBefore = mockDomBefore.elements[0];
-const elemAfter = mockDomAfter.elements[0];
-
-if (elemBefore.style.backgroundColor !== elemAfter.style.backgroundColor) {
-  changedFields.push('backgroundColor');
-}
-if (elemBefore.text !== elemAfter.text) {
-  changedFields.push('text');
+function png(width: number, height: number, draw: (x: number, y: number) => [number, number, number]): Buffer {
+  const img = new PNG({ width, height });
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const off = (y * width + x) * 4;
+      const [r, g, b] = draw(x, y);
+      img.data[off] = r;
+      img.data[off + 1] = g;
+      img.data[off + 2] = b;
+      img.data[off + 3] = 255;
+    }
+  }
+  return PNG.sync.write(img);
 }
 
-console.log('\n✅ DOM diff result:');
-console.log(`   Changed: ${changedFields.length > 0 ? 'true' : 'false'}`);
-console.log(`   Fields:  ${changedFields.join(', ')}`);
-console.log(`   Region:  x=${elemAfter.rect.x}, y=${elemAfter.rect.y}, w=${elemAfter.rect.w}, h=${elemAfter.rect.h}`);
+function node(id: string, overrides: Partial<DomNode> = {}): DomNode {
+  return {
+    path: `DIV:0>BUTTON:${id}`,
+    tag: "BUTTON",
+    id,
+    className: "btn",
+    text: "Submit",
+    rect: { x: 40, y: 100, w: 120, h: 40 },
+    style: {
+      color: "rgb(255, 255, 255)",
+      backgroundColor: "rgb(37, 99, 235)",
+      fontWeight: "400",
+      borderRadius: "8px",
+      opacity: "1",
+      boxShadow: "none",
+      border: "0px none rgb(0, 0, 0)",
+    },
+    ...overrides,
+  };
+}
 
-console.log('\n' + '─'.repeat(60));
-console.log('\n📋 Demo 2: No Change (Anti-Aliasing Test)\n');
-console.log('Before: Same DOM structure');
-console.log('After:  Same DOM structure (pixel differences would be AA noise)');
+console.log("🔍 VLM-Diff Quick Demo (real algorithm, synthetic inputs, 0 API calls)\n");
+console.log("━".repeat(60));
 
-// Simulate DOM diff on identical structures
-const noChangeResult = mockDomNoChange.elements[0].path === mockDomNoChange.elements[0].path;
+// ── Scenario 1: button turns blue → red (DOM-observable) ──
+{
+  const domBefore = JSON.stringify([node("submit-btn")]);
+  const domAfter = JSON.stringify([
+    node("submit-btn", { style: { ...node("submit-btn").style, backgroundColor: "rgb(220, 38, 38)" } }),
+  ]);
+  const before = png(200, 200, (x, y) => (x >= 40 && x < 160 && y >= 100 && y < 140 ? [37, 99, 235] : [243, 244, 246]));
+  const after = png(200, 200, (x, y) => (x >= 40 && x < 160 && y >= 100 && y < 140 ? [220, 38, 38] : [243, 244, 246]));
 
-console.log('\n✅ DOM diff result:');
-console.log(`   Changed: false`);
-console.log('   🎯 Key insight: Pixel differences suppressed by DOM ground truth');
-console.log('   This eliminates false positives from rendering noise!');
+  const result = detect(domBefore, domAfter, before, after);
+  console.log("\n1️⃣  Button color change (blue → red)");
+  console.log(`   changed: ${result.changed} · regions: ${result.regions.length}`);
+  for (const [i, d] of describeRegions(result.regions).entries()) {
+    console.log(`   → [${result.regions[i].source}] ${d.changeType}: ${d.description} (0 VLM tokens)`);
+  }
+}
 
-console.log('\n' + '━'.repeat(60));
-console.log('\n📊 Summary\n');
-console.log('✅ Demo 1: Color change detected via DOM diff');
-console.log('✅ Demo 2: No change correctly identified (0% false positives)');
-console.log('\n💡 This is the core innovation:');
-console.log('   • DOM structure as ground truth');
-console.log('   • Pixel noise is automatically filtered');
-console.log('   • No VLM needed for detection (only classification)');
-console.log('\n▶️  Full demo with screenshots: npm run demo:generate');
-console.log('');
+// ── Scenario 2: identical re-render (AA-noise suppression) ──
+{
+  const dom = JSON.stringify([node("submit-btn")]);
+  const img = png(200, 200, (x, y) => (x >= 40 && x < 160 && y >= 100 && y < 140 ? [37, 99, 235] : [243, 244, 246]));
+
+  const result = detect(dom, dom, img, img);
+  console.log("\n2️⃣  Identical re-render (noise suppression)");
+  console.log(`   changed: ${result.changed} ${result.changed ? "❌" : "✅ (correctly suppressed)"}`);
+}
+
+// ── Scenario 3: canvas-style repaint, zero DOM signal (v0.2 visual-only path) ──
+{
+  const dom = JSON.stringify([node("submit-btn")]);
+  const before = png(200, 200, () => [255, 255, 255]);
+  const after = png(200, 200, (x, y) => (x >= 140 && x < 190 && y >= 20 && y < 70 ? [16, 185, 129] : [255, 255, 255]));
+
+  const result = detect(dom, dom, before, after);
+  console.log("\n3️⃣  Canvas-style repaint with zero DOM signal (v0.2 relaxed rule)");
+  console.log(`   changed: ${result.changed} · visualOnly: ${result.visualOnly} · pixel delta: ${(result.pixelChangedFraction * 100).toFixed(2)}%`);
+  console.log(`   → ${result.regions.length} pixel-only region(s) would escalate to the VLM tier`);
+}
+
+console.log("\n" + "━".repeat(60));
+console.log("\n💡 The DOM diff supplies exact before/after values, so most changes are");
+console.log("   described deterministically at 0 VLM tokens. Only pixel-only deltas");
+console.log("   (canvas repaints, image swaps) escalate.\n");
+console.log("🚀 Next: npm run demo:generate && npm run demo:detect  (real screenshots)");

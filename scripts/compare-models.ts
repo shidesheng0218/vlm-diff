@@ -20,6 +20,7 @@ interface MvpReport {
     {
       metrics: {
         recall: number;
+        precision: number;
         falsePositiveRateOnNoChange: number;
         changeTypeAccuracy: number;
         avgInputTokens: number;
@@ -44,16 +45,14 @@ async function load(p: string): Promise<MvpReport> {
 }
 
 async function main() {
-  const defaultGlob = "results/mvp-report.json";
   const args = process.argv.slice(2);
-  const paths = args.length > 0 ? args : [defaultGlob, defaultGlob.replace(".json", "-*.json")];
-  // simple glob: exact paths or mvp-report-*.json expansion via readdir
+  // explicit report paths, or auto-discover results/mvp-report[-tag].json
   let files: string[] = [];
   if (args.length > 0) {
     files = args;
   } else {
     const { readdir } = await import("node:fs/promises");
-    const dir = path.dirname(defaultGlob);
+    const dir = "results";
     files = (await readdir(dir))
       .filter((f) => /^mvp-report(-.+)?\.json$/.test(f))
       .sort()
@@ -75,7 +74,7 @@ async function main() {
 
   console.log("Multi-model MVP comparison\n");
   const header =
-    "| model | n | tiered: recall / FP / type-acc | tiered tokens/pair | escalation | hint: type-acc | no-hint: type-acc | raw: recall |";
+    "| model | n | tiered: recall / FP / type-acc | tiered tokens/pair | escalation | hint: type-acc | no-hint: type-acc | raw: recall / precision |";
   const sep = "|---|---|---|---|---|---|---|---|";
   console.log(header);
   console.log(sep);
@@ -91,11 +90,12 @@ async function main() {
       `| ${pct(t.recall)} / ${pct(t.falsePositiveRateOnNoChange)} / **${pct(t.changeTypeAccuracy)}** ` +
       `| ${t.avgInputTokens.toFixed(0)}+${t.avgOutputTokens.toFixed(0)} ` +
       `| ${esc !== undefined ? pct(esc) : "n/a"} ` +
-      `| ${pct(h.changeTypeAccuracy)} | ${pct(nh.changeTypeAccuracy)} | ${pct(raw.recall)} |`;
+      `| ${pct(h.changeTypeAccuracy)} | ${pct(nh.changeTypeAccuracy)} ` +
+      `| ${pct(raw.recall)} / ${pct(raw.precision)} |`;
     md.push(row);
     console.log(row);
   }
-  console.log("\nKey columns: tiered type accuracy is exact-match vs ground truth; escalation is the fraction of regions sent to the VLM.");
+  console.log("\nKey columns: tiered type accuracy is exact-match vs ground truth; escalation is the fraction of regions sent to the VLM; raw precision is IoU≥0.3 localization accuracy.");
 }
 
 main().catch((err) => {

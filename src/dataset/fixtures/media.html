@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+  body { font-family: -apple-system, sans-serif; background: #f9fafb; margin: 0; padding: 32px; }
+  h2 { margin: 0 0 16px; font-size: 18px; color: #111827; }
+  .media-row { display: flex; gap: 16px; align-items: flex-start; max-width: 900px; }
+  .panel { background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 16px; }
+  .panel h3 { margin: 0 0 12px; font-size: 13px; color: #374151; }
+  #chart-canvas { display: block; }
+  #sparkline { display: block; }
+  #avatar { display: block; width: 64px; height: 64px; border-radius: 8px; }
+</style>
+</head>
+<body>
+  <h2 id="media-title">Media widgets</h2>
+  <div class="media-row">
+    <div class="panel">
+      <h3>Weekly builds</h3>
+      <canvas id="chart-canvas" width="300" height="150"></canvas>
+    </div>
+    <div class="panel">
+      <h3>Latency trend</h3>
+      <svg id="sparkline" width="200" height="48" viewBox="0 0 200 48">
+        <rect id="spark-bg" x="0" y="0" width="200" height="48" fill="#f3f4f6"/>
+        <path id="spark-path" d="M4 36 L36 28 L68 32 L100 16 L132 22 L164 8 L196 14"
+              fill="none" stroke="#3b82f6" stroke-width="2" stroke-linecap="round"/>
+      </svg>
+    </div>
+    <div class="panel">
+      <h3>Owner</h3>
+      <img id="avatar" width="64" height="64" alt="owner avatar"
+           src="data:image/svg+xml;utf8,&lt;svg xmlns='http://www.w3.org/2000/svg' width='64' height='64'&gt;&lt;rect width='64' height='64' rx='12' fill='%233b82f6'/&gt;&lt;circle cx='32' cy='26' r='10' fill='white'/&gt;&lt;rect x='16' y='40' width='32' height='14' rx='7' fill='white'/&gt;&lt;/svg&gt;">
+    </div>
+  </div>
+<script>
+  // Deterministic seeded bar chart: same pixels on every load, no DOM signal.
+  (function () {
+    var c = document.getElementById('chart-canvas');
+    var ctx = c.getContext('2d');
+    var s = 42;
+    function rnd() { s = (s * 9301 + 49297) % 233280; return s / 233280; }
+    ctx.fillStyle = '#f3f4f6';
+    ctx.fillRect(0, 0, c.width, c.height);
+    for (var i = 0; i < 8; i++) {
+      var h = 24 + Math.floor(rnd() * 100);
+      ctx.fillStyle = '#3b82f6';
+      ctx.fillRect(i * 36 + 14, 140 - h, 26, h);
+    }
+  })();
+</script>
+</body>
+</html>

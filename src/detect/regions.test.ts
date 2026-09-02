@@ -82,6 +82,71 @@ test("detect: rect changes carry position/size fields and the signed delta", () 
   assert.deepEqual(result.regions[0].rectDelta, { dx: 0, dy: 0, dw: 6, dh: 0 });
 });
 
+function blockPng(width: number, height: number, block: { x: number; y: number; w: number; h: number }, rgb: [number, number, number]): Buffer {
+  const png = new PNG({ width, height });
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const off = (y * width + x) * 4;
+      const inBlock = x >= block.x && x < block.x + block.w && y >= block.y && y < block.y + block.h;
+      const [r, g, b] = inBlock ? rgb : [255, 255, 255];
+      png.data[off] = r;
+      png.data[off + 1] = g;
+      png.data[off + 2] = b;
+      png.data[off + 3] = 255;
+    }
+  }
+  return PNG.sync.write(png);
+}
+
+test("detect: DOM-unchanged pair with a large pixel delta escalates as visual-only (canvas case)", () => {
+  const dom = JSON.stringify([node()]);
+  const beforePng = solidPng(100, 100, [255, 255, 255]);
+  // 20×20 repaint = 4% of the frame, far above the 0.2% default threshold
+  const afterPng = blockPng(100, 100, { x: 40, y: 40, w: 20, h: 20 }, [0, 0, 0]);
+  const result = detect(dom, dom, beforePng, afterPng);
+  assert.equal(result.changed, true);
+  assert.equal(result.visualOnly, true);
+  assert.equal(result.domChangeCount, 0);
+  assert.equal(result.regions.length, 1);
+  assert.equal(result.regions[0].source, "pixel");
+  // AA exclusion may shave the block's border; assert the interior survives
+  assert.ok(result.regions[0].w >= 16 && result.regions[0].h >= 16);
+  assert.ok(result.pixelChangedFraction > 0.02);
+});
+
+test("detect: DOM-unchanged pair below the pixel threshold stays suppressed", () => {
+  const dom = JSON.stringify([node()]);
+  const beforePng = solidPng(200, 200, [255, 255, 255]);
+  // 4×4 speck = 0.04% of the frame, below the 0.2% default threshold
+  const afterPng = blockPng(200, 200, { x: 100, y: 100, w: 4, h: 4 }, [0, 0, 0]);
+  const result = detect(dom, dom, beforePng, afterPng);
+  assert.equal(result.changed, false);
+  assert.equal(result.visualOnly, false);
+  assert.equal(result.regions.length, 0);
+});
+
+test("detect: pixelOnlyThreshold override can escalate sub-default deltas", () => {
+  const dom = JSON.stringify([node()]);
+  const beforePng = solidPng(200, 200, [255, 255, 255]);
+  const afterPng = blockPng(200, 200, { x: 100, y: 100, w: 4, h: 4 }, [0, 0, 0]);
+  const result = detect(dom, dom, beforePng, afterPng, { pixelOnlyThreshold: 0.0001 });
+  assert.equal(result.changed, true);
+  assert.equal(result.visualOnly, true);
+  // the speck is below the grouping min-area, so the mask-bounds fallback kicks in
+  assert.equal(result.regions.length, 1);
+  assert.deepEqual({ x: result.regions[0].x, y: result.regions[0].y, w: result.regions[0].w, h: result.regions[0].h }, { x: 100, y: 100, w: 4, h: 4 });
+});
+
+test("detect: DOM-change path reports pixel audit fields and visualOnly=false", () => {
+  const before = [node()];
+  const after = [node({ style: { ...node().style, backgroundColor: "rgb(220,38,38)" } })];
+  const img = solidPng(60, 60, [255, 255, 255]);
+  const result = detect(JSON.stringify(before), JSON.stringify(after), img, img);
+  assert.equal(result.visualOnly, false);
+  assert.equal(result.pixelChangedCount, 0);
+  assert.equal(result.pixelChangedFraction, 0);
+});
+
 test("detect: removed element region uses the replacement's after-rect and keeps the original as counterpart", () => {
   // link-3 removed; link-2 (in after) sits where link-3 used to be
   const before = [
