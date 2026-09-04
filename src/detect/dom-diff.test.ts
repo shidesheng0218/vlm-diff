@@ -120,3 +120,63 @@ test("diffDom: rect-only change carries no values", () => {
   const changes = diffDom(a, b);
   assert.equal(changes[0].values, undefined);
 });
+
+// ── v0.3 fuzzy matching: reorder/insert robustness ──
+
+test("diffDom: reordering id'd siblings yields position changes, no phantom add/remove", () => {
+  // card-1 and card-3 swap positions in the grid
+  const item = (id: string, path: string, x: number) =>
+    node({ id, path, rect: { x, y: 0, w: 100, h: 20 } });
+  const before = [item("c1", "DIV:0/DIV:0", 0), item("c2", "DIV:0/DIV:1", 110), item("c3", "DIV:0/DIV:2", 220)];
+  const after = [item("c3", "DIV:0/DIV:0", 0), item("c2", "DIV:0/DIV:1", 110), item("c1", "DIV:0/DIV:2", 220)];
+  const changes = diffDom(before, after);
+  // only the two moved cards, as position changes — no add/remove, no text/style noise
+  assert.equal(changes.length, 2);
+  assert.ok(changes.every((c) => c.changedFields.every((f) => f === "position")));
+  assert.deepEqual(new Set(changes.map((c) => c.id)), new Set(["c1", "c3"]));
+});
+
+test("diffDom: reordering identical-looking siblings with unique text matches by signature", () => {
+  // no ids — matched on tag|className|text
+  const item = (path: string, x: number, text: string) =>
+    node({ id: "", path, rect: { x, y: 0, w: 100, h: 20 }, text });
+  const before = [item("DIV:0/LI:0", 0, "Alpha"), item("DIV:0/LI:1", 110, "Beta")];
+  const after = [item("DIV:0/LI:0", 0, "Beta"), item("DIV:0/LI:1", 110, "Alpha")];
+  const changes = diffDom(before, after);
+  assert.equal(changes.length, 2);
+  assert.ok(changes.every((c) => c.changedFields.includes("position")));
+  assert.ok(!changes.some((c) => c.changedFields.includes("text")));
+});
+
+test("diffDom: head insert shifts followers as position changes, one added node only", () => {
+  const item = (id: string, path: string, y: number) =>
+    node({ id, path, rect: { x: 0, y, w: 100, h: 20 } });
+  const before = [item("b", "UL:0/LI:0", 0), item("c", "UL:0/LI:1", 22)];
+  const after = [item("a", "UL:0/LI:0", 0), item("b", "UL:0/LI:1", 22), item("c", "UL:0/LI:2", 44)];
+  const changes = diffDom(before, after);
+  const added = changes.filter((c) => c.changedFields.includes("added"));
+  assert.equal(added.length, 1);
+  assert.equal(added[0].id, "a");
+  // b and c moved down — no phantom removes
+  assert.ok(!changes.some((c) => c.changedFields.includes("removed")));
+  assert.ok(changes.filter((c) => c.changedFields.includes("position")).length === 2);
+});
+
+test("diffDom: reordering truly identical items is a no-op", () => {
+  const item = (path: string) => node({ id: "", path, className: "card", text: "" });
+  const before = [item("DIV:0/DIV:0"), item("DIV:0/DIV:1")];
+  const after = [item("DIV:0/DIV:0"), item("DIV:0/DIV:1")];
+  assert.deepEqual(diffDom(before, after), []);
+});
+
+test("diffDom: content change on a reordered item is attributed to that item", () => {
+  const item = (id: string, path: string, x: number, text: string) =>
+    node({ id, path, rect: { x, y: 0, w: 100, h: 20 }, text });
+  const before = [item("c1", "DIV:0/DIV:0", 0, "Alpha"), item("c2", "DIV:0/DIV:1", 110, "Beta")];
+  const after = [item("c2", "DIV:0/DIV:0", 0, "Beta"), item("c1", "DIV:0/DIV:1", 110, "Alpha v2")];
+  const changes = diffDom(before, after);
+  const textChange = changes.find((c) => c.changedFields.includes("text"));
+  assert.ok(textChange);
+  assert.equal(textChange.id, "c1"); // the change follows the element, not the slot
+  assert.deepEqual(textChange.values?.text, { before: "Alpha", after: "Alpha v2" });
+});

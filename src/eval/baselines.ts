@@ -10,7 +10,7 @@
 import { readFile } from "node:fs/promises";
 import type { Provider } from "../provider/types.js";
 import { imageBlock, textBlock } from "../provider/types.js";
-import { detect, type CandidateRegion, type DetectionResult } from "../detect/regions.js";
+import { detect, mergeNestedRegions, type CandidateRegion, type DetectionResult } from "../detect/regions.js";
 import { diffImages, groupRegions } from "../detect/perceptual-diff.js";
 import { classifyRegion, classifyRegionCached, cropRegion } from "../classify/vlm-classify.js";
 import type { ChangeKind, Classification, DomHint } from "../classify/vlm-classify.js";
@@ -279,7 +279,10 @@ export async function runTieredPipeline(
     };
   }
 
-  const sorted = [...detection.regions].sort((a, b) => b.w * b.h - a.w * a.h).slice(0, maxRegions);
+  // Semantic merge: nested geometry-only regions (a card and its children
+  // moving together) collapse into the outermost logical change unit.
+  const merged = mergeNestedRegions(detection.regions);
+  const sorted = [...merged].sort((a, b) => b.w * b.h - a.w * a.h).slice(0, maxRegions);
 
   // Batch-describe with root-cause attribution: geometry-only regions in a
   // pair that also has a non-geometry change get follower wording.

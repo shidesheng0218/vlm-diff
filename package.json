@@ -1,6 +1,6 @@
 {
   "name": "vlm-diff-eval",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Deterministic-first UI screenshot diffing: DOM+pixel detection, tiered descriptions, CLI and MCP server for coding agents",
   "private": true,
   "type": "module",
@@ -33,7 +33,6 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.68.0",
     "@modelcontextprotocol/sdk": "^1.30.0",
-    "gif.js.optimized": "^1.0.1",
     "openai": "^4.77.0",
     "pixelmatch": "^7.1.0",
     "playwright": "^1.62.1",
@@ -43,6 +42,7 @@
   "devDependencies": {
     "@types/node": "^22.10.5",
     "@types/pngjs": "^6.0.5",
+    "gifenc": "^1.0.3",
     "tsx": "^4.23.12",
     "typescript": "^5.7.3"
   }

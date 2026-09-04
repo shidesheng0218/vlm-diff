@@ -5,9 +5,11 @@
 // CI artifact on its own.
 
 import { readFile } from "node:fs/promises";
+import { PNG } from "pngjs";
 import type { BaselineResult } from "../eval/baselines.js";
 import type { PairRecord } from "../eval/types.js";
 import { estimateCostUsd } from "../cost/pricing.js";
+import { regionOverlaySvg } from "./overlay.js";
 
 export interface ReportSummary {
   totalPairs: number;
@@ -87,8 +89,19 @@ export async function generateHtmlReport(input: ReportInput, dataDir: string): P
     results.map(async (r) => {
       const pair = byId.get(r.pairId);
       if (!pair) return "";
-      const beforeB64 = (await readFile(`${dataDir}/${pair.before}`)).toString("base64");
-      const afterB64 = (await readFile(`${dataDir}/${pair.after}`)).toString("base64");
+      const beforePngBuf = await readFile(`${dataDir}/${pair.before}`);
+      const afterPngBuf = await readFile(`${dataDir}/${pair.after}`);
+      const beforeB64 = beforePngBuf.toString("base64");
+      const afterB64 = afterPngBuf.toString("base64");
+      // actually overlay the detected regions on the after frame (the header
+      // comment promised this; the v0.1/v0.2 implementation only rendered
+      // bare images)
+      const afterDims = PNG.sync.read(afterPngBuf);
+      const overlay = regionOverlaySvg(
+        (r.classifications ?? []).map((c, i) => ({ x: c.region.x, y: c.region.y, w: c.region.w, h: c.region.h, index: i + 1 })),
+        afterDims.width,
+        afterDims.height,
+      );
       const cacheLabel =
         r.cached === true ? `<span class="badge badge-hit">cache hit</span>` :
         r.cached === false ? `<span class="badge badge-miss">cache miss</span>` : "";
@@ -102,8 +115,8 @@ export async function generateHtmlReport(input: ReportInput, dataDir: string): P
             ${cacheLabel}
           </div>
           <div class="pair-images">
-            <figure><img src="data:image/png;base64,${beforeB64}" /><figcaption>before</figcaption></figure>
-            <figure><img src="data:image/png;base64,${afterB64}" /><figcaption>after</figcaption></figure>
+            <figure><div class="imgwrap"><img src="data:image/png;base64,${beforeB64}" /></div><figcaption>before</figcaption></figure>
+            <figure><div class="imgwrap"><img src="data:image/png;base64,${afterB64}" />${overlay}</div><figcaption>after${overlay ? " (regions annotated)" : ""}</figcaption></figure>
           </div>
           <div class="pair-result">
             <div>changed: <strong>${r.predictedChanged}</strong></div>
@@ -152,6 +165,7 @@ export async function generateHtmlReport(input: ReportInput, dataDir: string): P
   .badge-vlm { background: #fef3c7; color: #92400e; margin-right: 6px; }
   .pair-images { display: flex; gap: 8px; margin-bottom: 8px; }
   .pair-images figure { margin: 0; flex: 1; }
+  .pair-images .imgwrap { position: relative; }
   .pair-images img { width: 100%; border-radius: 6px; display: block; }
   .pair-images figcaption { text-align: center; font-size: 11px; color: #888; margin-top: 2px; }
   .pair-result { font-size: 13px; line-height: 1.5; }

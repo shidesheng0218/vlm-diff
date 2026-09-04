@@ -4,7 +4,9 @@
 
 A research prototype demonstrating that **deterministic DOM diffing + perceptual pixel diffing → VLM classification** significantly outperforms naive "feed-two-screenshots-to-VLM" approaches for UI visual regression detection.
 
-**v0.2 (2026-09):** the pipeline is now a usable tool, not just a benchmark — a `vlm-diff` CLI diffs any two screenshots, an MCP server gives coding agents a visual-regression sense, pixel-only changes (canvas repaints, image swaps) are covered end-to-end, and every headline number carries a confidence interval. See [CHANGELOG](CHANGELOG.md).
+**v0.3 (2026-09):** structural understanding over positional diffing — reorder-robust fuzzy DOM matching (list reorders/head-inserts no longer fan out into phantom regions), semantic region merging, deterministic severity tiers (breaking/moderate/cosmetic), an annotated HTML report (`--report`), and a Percy-style baseline workflow (`init`/`baseline`/`check`).
+
+**v0.2 (2026-09):** the pipeline became a usable tool — a `vlm-diff` CLI diffs any two screenshots, an MCP server gives coding agents a visual-regression sense, pixel-only changes (canvas repaints, image swaps) are covered end-to-end, and every headline number carries a confidence interval. See [CHANGELOG](CHANGELOG.md).
 
 📝 **[Read the full writeup on Dev.to](https://dev.to/shidesheng/building-a-visual-regression-tool-with-vlms-and-dom-diffing-1j4m)**
 
@@ -73,7 +75,7 @@ graph TB
 
 ## Dataset
 
-**185 UI screenshot pairs** (v0.2) across 7 realistic fixtures (card grid, form, navbar, data table, modal dialog, dashboard, and a **media** page with `<canvas>`/`<svg>`/`<img>` widgets) × 28 mutation types:
+**187 UI screenshot pairs** across 7 realistic fixtures (card grid, form, navbar, data table, modal dialog, dashboard, and a **media** page with `<canvas>`/`<svg>`/`<img>` widgets) × 29 mutation types:
 
 | Mutation Category | Count | Example |
 |-------------------|-------|---------|
@@ -83,6 +85,7 @@ graph TB
 | Text change (similar, different, shorten, numeric) | 22 | "Project Falcon" → "Project Falcan", "$48,210" → "$52,980" |
 | Element add / remove (last, first) | 18 | Clone or delete a card/row/button from a container |
 | Style change (font-weight, border-radius, box-shadow, opacity) | 22 | Bold → normal, rounded → square, opacity 1 → 0.5 |
+| **List reorder** (v0.3) | 2 | Reverse a card grid / table rows — exercises fuzzy DOM matching |
 | **Pixel-only** (v0.2: canvas repaint ×2, SVG fill, image swap) | 4 | Canvas bars repainted with **zero DOM signal** — the VLM escalation path |
 | **No-change** (render noise only) | 42 | Identical DOM; re-render, reload, and settle-time variants (v0.1 had 6) |
 
@@ -94,11 +97,11 @@ Each pair includes:
 
 v0.1's dataset was DOM-observable by construction, which made the near-total determinism result partially circular. The v0.2 expansion attacks that directly: the 4 pixel-only mutations can only be handled by the VLM escalation path, and the 42 no-change pairs deepen the false-positive denominator (the v0.1 0/6 FP rate's 95% CI upper bound was ≈46%; 0/42 brings it to ≈8%).
 
-The detection layer is exercised over the full dataset on every `dataset:gen`: **143/143 changed pairs detected, 0/42 false positives** (thresholded suppression holds on all fixtures; CI enforces the escalation-rate gate via `npm run replay:assert`).
+The detection layer is exercised over the full dataset on every `dataset:gen`: **145/145 changed pairs detected, 0/42 false positives** (thresholded suppression holds on all fixtures; CI enforces the escalation-rate gate via `npm run replay:assert`).
 
 ## Predicted Performance
 
-> **⚠️ Validation Status**: The deterministic detection layer (Stage 1) has been confirmed on the full dataset: 139/139 changed pairs detected, 0/6 false positives on no-change pairs. The **three-arm MVP with real API calls** (15-pair subset: rawPairToVlm vs fullPipeline vs fullPipeline + DOM-field hint, Kimi K3 via DashScope, two runs) confirmed the recall and FP-rate predictions (+25pp, 0%), **refuted plain crop-then-classify** (58.3–66.7% vs 100% conditional classification accuracy), and showed that passing the detector's changed-fields as a text hint **recovers the gap**: 83.3% classification in both runs, beating rawPairToVlm end-to-end (83.3% vs 66.7–75.0%). A **four-arm MVP** (2026-08-28, 36 pairs, Kimi K3) then validated the tiered pipeline: **100% end-to-end type accuracy at ~15 tokens/pair** (98.9% token savings, 1.3% escalation), and a **multi-model replication** on qwen3.8-max reproduced the result exactly (100% / 0% / 100%, same 1.3% escalation). Details below.
+> **⚠️ Validation Status**: The deterministic detection layer (Stage 1) has been confirmed on the full dataset: 145/145 changed pairs detected, 0/42 false positives on no-change pairs. The **three-arm MVP with real API calls** (15-pair subset: rawPairToVlm vs fullPipeline vs fullPipeline + DOM-field hint, Kimi K3 via DashScope, two runs) confirmed the recall and FP-rate predictions (+25pp, 0%), **refuted plain crop-then-classify** (58.3–66.7% vs 100% conditional classification accuracy), and showed that passing the detector's changed-fields as a text hint **recovers the gap**: 83.3% classification in both runs, beating rawPairToVlm end-to-end (83.3% vs 66.7–75.0%). A **four-arm MVP** (2026-08-28, 36 pairs, Kimi K3) then validated the tiered pipeline: **100% end-to-end type accuracy at ~15 tokens/pair** (98.9% token savings, 1.3% escalation), and a **multi-model replication** on qwen3.8-max reproduced the result exactly (100% / 0% / 100%, same 1.3% escalation). Details below.
 >
 > The eval harness (`npm run eval:run`) now scores description quality with an **independent judge model** (a different vendor than the one being evaluated, via `createJudgeProvider()`) to avoid self-preference bias — same-model judging was a known gap in the original methodology and is fixed as of [#1](https://github.com/shidesheng0218/vlm-diff/pull/1).
 >
@@ -277,13 +280,24 @@ node dist/cli/main.js snapshot http://localhost:3000 --out-dom before.dom.json -
 node dist/cli/main.js snapshot http://localhost:3000 --out-dom after.dom.json --out-png after.png
 
 # tiered diff: deterministic descriptions at 0 tokens, VLM only for pixel-only deltas
-node dist/cli/main.js diff before.png after.png --dom-before before.dom.json --dom-after after.dom.json
+node dist/cli/main.js diff before.png after.png --dom-before before.dom.json --dom-after after.dom.json \
+  --report report.html   # self-contained HTML: before/after with annotated region boxes
 ```
 
 - Without `--dom-*` the CLI degrades to pixel-only mode (every significant delta escalates to the VLM).
-- `--json` emits machine-readable output; exit codes are CI-friendly: **0** = no change, **1** = change detected, **2** = error/unresolved escalation.
+- `--json` emits machine-readable output; exit codes are CI-friendly: **0** = no change, **1** = change detected, **2** = error, **3** = change detected but needs a VLM key.
 - `--no-vlm` runs detection+routing with zero API calls (escalated regions are listed as pending).
+- `--report <file.html>` writes a shareable report: before/after side-by-side with numbered region overlays + per-region severity/route cards.
 - API keys come from the environment or a local `.env` file (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `MOONSHOT_API_KEY`, `DASHSCOPE_API_KEY`, `OPENCODE_API_KEY`); `--provider`/`--model` override the preset.
+
+### Baseline workflow (watch a project over time)
+
+```bash
+node dist/cli/main.js init http://localhost:3000/   # .vlm-diff/config.json (pages to watch)
+node dist/cli/main.js baseline                       # golden snapshots → .vlm-diff/baseline/
+# …later, after changes…
+node dist/cli/main.js check                          # diff every page vs baseline, CI exit codes
+```
 
 ### MCP server (give coding agents a visual-regression sense)
 
@@ -397,6 +411,16 @@ DOM diff eliminates these: if `document.body` structure didn't change and the pi
 - Pixel deltas below pixelmatch's own sensitivity (~0.15 YIQ delta) never register at all — e.g. a 2px SVG stroke recolor changes only ~0.04% of frame pixels and sits under any sane noise floor
 
 Canvas repaints and image swaps — the v0.1 blind spot — are covered by the escalated pixel-only path (see the v0.2 pixel-only dataset pairs and the real-repo icon-swap validation).
+
+### Structural understanding (v0.3)
+
+Three upgrades move the core from positional diffing toward actual structure:
+
+**Fuzzy DOM matching.** v0.2 matched nodes purely by positional path (`TAG:index>…`), so a list reorder or a head-insertion exploded: every shifted sibling became a phantom add/remove plus cascaded text/style diffs. v0.3 first pairs nodes by a *stable key* — a unique `id`, else a unique `tag|className|text` signature — before falling back to path matching. A card that moved to a different index is now one `position` change; reordering visually-identical siblings is correctly a no-op. The `list-reorder` mutation pair exercises exactly this.
+
+**Semantic region merging.** A card and its children moving together is *one* logical move, not N regions. Geometry-only regions fully contained in a larger geometry-only region collapse into the outer unit before description — the "4–6 regions per change" fan-out becomes one region per logical change.
+
+**Deterministic severity.** Every region gets a zero-token severity tier from a small ordered rule table: element add/remove and numeric/price text changes are `breaking`; large moves/resizes and copy changes are `moderate`; color/style tweaks are `cosmetic`. The pair-level severity is the max. This is what makes the CI exit code *semantic*: gate on breaking, not on "pixels changed".
 
 ### Why Crop-Then-Classify?
 

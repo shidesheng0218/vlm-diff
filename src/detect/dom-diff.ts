@@ -71,16 +71,110 @@ export function rectDeltaFields(d: RectDelta): string[] {
   return fields;
 }
 
-/** Diff two DOM snapshots. Returns one DomChange per node whose text, rect, or style differs. */
+/** Per-node field comparison: which fields differ between a matched before/after pair. */
+function compareNodes(b: DomNode, a: DomNode): { changedFields: string[]; values: Record<string, FieldChange>; rectDelta?: RectDelta } {
+  const changedFields: string[] = [];
+  const values: Record<string, FieldChange> = {};
+  let rectDelta: RectDelta | undefined;
+  if (rectChanged(b.rect, a.rect)) {
+    rectDelta = rectDeltaOf(b.rect, a.rect);
+    changedFields.push(...rectDeltaFields(rectDelta));
+  }
+  const styleFields: Array<keyof DomNode["style"]> = [
+    "color", "backgroundColor", "fontWeight", "borderRadius", "opacity", "boxShadow", "border",
+  ];
+  if (b.text !== a.text) {
+    changedFields.push("text");
+    values.text = { before: b.text, after: a.text };
+  }
+  for (const f of styleFields) {
+    if (b.style[f] !== a.style[f]) {
+      changedFields.push(f);
+      values[f] = { before: b.style[f], after: a.style[f] };
+    }
+  }
+  return { changedFields, values, ...(rectDelta ? { rectDelta } : {}) };
+}
+
+/** Map of key → node for keys that appear exactly once (duplicates are unsafe to match). */
+function uniqueIndex(nodes: DomNode[], keyOf: (n: DomNode) => string | null): Map<string, DomNode> {
+  const count = new Map<string, number>();
+  for (const n of nodes) {
+    const k = keyOf(n);
+    if (k !== null) count.set(k, (count.get(k) ?? 0) + 1);
+  }
+  const map = new Map<string, DomNode>();
+  for (const n of nodes) {
+    const k = keyOf(n);
+    if (k !== null && count.get(k) === 1) map.set(k, n);
+  }
+  return map;
+}
+
+const idKey = (n: DomNode): string | null => (n.id ? `id:${n.id}` : null);
+const sigKey = (n: DomNode): string | null => `sig:${n.tag}|${n.className}|${n.text}`;
+
+/**
+ * Diff two DOM snapshots. Returns one DomChange per node whose text, rect, or
+ * style differs.
+ *
+ * v0.3 fuzzy matching: before the positional-path pass, nodes are paired
+ * across paths by a stable key (unique id, else unique tag|className|text
+ * signature). This makes list reorders and head-insertions align correctly —
+ * a card that moved to a different index is one `position` change, not a
+ * phantom remove+add plus cascaded text/style diffs at shifted paths. Nodes
+ * without a unique key (identical siblings) stay path-matched: reordering
+ * visually-identical items is genuinely a no-op.
+ */
 export function diffDom(before: DomNode[], after: DomNode[]): DomChange[] {
+  const changes: DomChange[] = [];
+  const consumedBefore = new Set<string>(); // paths of before-nodes already keyed-matched
+  const consumedAfter = new Set<string>();
+
+  // Phase 1: stable-key matching (unique ids first, then unique signatures).
+  const keyedPairs: Array<{ b: DomNode; a: DomNode }> = [];
+  const keyMatchedBefore = new Set<DomNode>();
+
+  for (const keyOf of [idKey, sigKey]) {
+    const bByKey = uniqueIndex(before, keyOf);
+    const aByKey = uniqueIndex(after, keyOf);
+    for (const [key, b] of bByKey) {
+      if (keyMatchedBefore.has(b)) continue; // already matched by id
+      const a = aByKey.get(key);
+      if (a && !keyedPairs.some((p) => p.a === a)) {
+        keyedPairs.push({ b, a });
+        keyMatchedBefore.add(b);
+        consumedBefore.add(b.path);
+        consumedAfter.add(a.path);
+      }
+    }
+  }
+
+  for (const { b, a } of keyedPairs) {
+    const { changedFields, values, rectDelta } = compareNodes(b, a);
+    if (changedFields.length > 0) {
+      changes.push({
+        path: a.path,
+        id: a.id,
+        rect: a.rect,
+        changedFields,
+        ...(rectDelta ? { rectDelta } : {}),
+        ...(Object.keys(values).length > 0 ? { values } : {}),
+      });
+    }
+  }
+
+  // Phase 2: positional-path matching for everything not keyed-matched.
   const beforeByPath = new Map(before.map((n) => [n.path, n]));
   const afterByPath = new Map(after.map((n) => [n.path, n]));
-  const changes: DomChange[] = [];
-
   const allPaths = new Set([...beforeByPath.keys(), ...afterByPath.keys()]);
   for (const path of allPaths) {
-    const b = beforeByPath.get(path);
-    const a = afterByPath.get(path);
+    const rawB = beforeByPath.get(path);
+    const rawA = afterByPath.get(path);
+    // a path is unavailable if its node was already claimed by a keyed match
+    const b = rawB && !consumedBefore.has(rawB.path) ? rawB : undefined;
+    const a = rawA && !consumedAfter.has(rawA.path) ? rawA : undefined;
+    if (!b && !a) continue;
 
     if (!b || !a) {
       // node added or removed — carry the surviving side's text so the
@@ -98,46 +192,7 @@ export function diffDom(before: DomNode[], after: DomNode[]): DomChange[] {
       continue;
     }
 
-    const changedFields: string[] = [];
-    const values: Record<string, FieldChange> = {};
-    let rectDelta: RectDelta | undefined;
-    if (rectChanged(b.rect, a.rect)) {
-      rectDelta = rectDeltaOf(b.rect, a.rect);
-      changedFields.push(...rectDeltaFields(rectDelta));
-    }
-    if (b.text !== a.text) {
-      changedFields.push("text");
-      values.text = { before: b.text, after: a.text };
-    }
-    if (b.style.color !== a.style.color) {
-      changedFields.push("color");
-      values.color = { before: b.style.color, after: a.style.color };
-    }
-    if (b.style.backgroundColor !== a.style.backgroundColor) {
-      changedFields.push("backgroundColor");
-      values.backgroundColor = { before: b.style.backgroundColor, after: a.style.backgroundColor };
-    }
-    if (b.style.fontWeight !== a.style.fontWeight) {
-      changedFields.push("fontWeight");
-      values.fontWeight = { before: b.style.fontWeight, after: a.style.fontWeight };
-    }
-    if (b.style.borderRadius !== a.style.borderRadius) {
-      changedFields.push("borderRadius");
-      values.borderRadius = { before: b.style.borderRadius, after: a.style.borderRadius };
-    }
-    if (b.style.opacity !== a.style.opacity) {
-      changedFields.push("opacity");
-      values.opacity = { before: b.style.opacity, after: a.style.opacity };
-    }
-    if (b.style.boxShadow !== a.style.boxShadow) {
-      changedFields.push("boxShadow");
-      values.boxShadow = { before: b.style.boxShadow, after: a.style.boxShadow };
-    }
-    if (b.style.border !== a.style.border) {
-      changedFields.push("border");
-      values.border = { before: b.style.border, after: a.style.border };
-    }
-
+    const { changedFields, values, rectDelta } = compareNodes(b, a);
     if (changedFields.length > 0) {
       changes.push({
         path,

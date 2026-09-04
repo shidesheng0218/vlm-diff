@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.3.0] — 2026-09-04
+
+The "structural understanding" release: positional diffing → keyed matching, plus a product-grade shell.
+
+### Algorithm
+
+- **Fuzzy DOM matching** (`src/detect/dom-diff.ts`): nodes are now paired by a stable key (unique `id`, else unique `tag|className|text` signature) before the positional-path pass. List reorders and head-insertions align by identity — a moved card is one `position` change, not a phantom remove+add plus cascaded diffs. Reordering visually-identical siblings is correctly a no-op.
+- **Semantic region merging** (`mergeNestedRegions` in `src/detect/regions.ts`): a geometry-only region fully contained in a larger geometry-only region collapses into it (a card and its children moving is one logical change). Applied at the pipeline level; detection stays granular for metrics.
+- **Deterministic severity** (`src/core/severity.ts`): ordered zero-token rules classify every region breaking/moderate/cosmetic (lifecycle and numeric-text changes are breaking; large moves/resizes moderate; color/style cosmetic). Surfaced in the CLI, the HTML report, and the MCP tool output; drives CI gating semantics.
+- Dataset: 187 pairs — new `list-reorder` mutation (card grid + table rows) covering the fuzzy-matching path.
+
+### Product
+
+- **CLI visual report** (`vlm-diff diff --report out.html`): self-contained HTML with before/after side-by-side, the after frame annotated with numbered severity-colored region boxes, and a card per region (type/description/route/confidence/severity). The eval HTML report (`src/report/generate.ts`) now actually draws the region overlays its header always claimed.
+- **Baseline workflow** (`vlm-diff init` / `baseline` / `check`): Percy-style golden snapshots under `.vlm-diff/`, with `check` re-capturing and diffing every configured page.
+- **CLI hardening**: argument parser no longer lets a boolean flag swallow a positional (`--no-vlm before.png` used to eat `before.png`); supports `--flag=value`; new exit code **3** for "changed but needs a VLM key" so CI can tell it apart from errors; cache/`.env` anchor to the project root (walk-up from cwd) instead of cwd.
+
+### Docs & demo
+
+- QUICKSTART.md rewritten — it pointed at files and scripts that didn't exist.
+- Demo GIF is now reproducible from a clean checkout (`scripts/generate-demo-gif.ts` assembles `docs/pipeline-demo.gif` in-process via pure-JS `gifenc`); dead dependency `gif.js.optimized` removed.
+- Launch/marketing materials moved to `docs/marketing/` — the root directory is now the tool, not the campaign workspace.
+
+Tests: 156 → 185.
+
 ## [0.2.0] — 2026-09-02
 
 The "research demo → usable tool" release. Five verified problems, fixed:

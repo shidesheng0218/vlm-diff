@@ -490,6 +490,19 @@ export const V02_MUTATIONS: TargetedMutation[] = [
     },
   },
   {
+    id: "list-reorder",
+    kind: "spatial-shift",
+    magnitude: "large",
+    targets: { "card-list.html": "#grid", "table.html": "#deploy-rows" },
+    description: "reverse the order of the container's children (reorder — fuzzy DOM matching must align by identity, not position)",
+    apply: (sel) => {
+      const container = document.querySelector(sel!);
+      if (!container) return;
+      const kids = Array.from(container.children);
+      for (let i = kids.length - 1; i >= 0; i--) container.appendChild(kids[i]);
+    },
+  },
+  {
     id: "none-d",
     kind: "none",
     magnitude: "small",

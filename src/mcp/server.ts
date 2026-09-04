@@ -31,9 +31,11 @@ function formatVerdict(verdict: DiffVerdict): string {
   );
   if (verdict.summary) lines.push(`summary: ${verdict.summary}`);
   if (verdict.changeType) lines.push(`change type: ${verdict.changeType}`);
+  if (verdict.severity) lines.push(`severity: ${verdict.severity}`);
   verdict.regions.forEach((r, i) => {
     const pending = r.route === "vlm" && !r.changeType ? " [pending VLM]" : "";
-    lines.push(`${i + 1}. (${r.x},${r.y} ${r.w}×${r.h}) [${r.source} → ${r.route}] ${r.changeType ?? "?"}${pending}`);
+    const sev = r.severity ? ` · ${r.severity}` : "";
+    lines.push(`${i + 1}. (${r.x},${r.y} ${r.w}×${r.h}) [${r.source} → ${r.route}] ${r.changeType ?? "?"}${sev}${pending}`);
     if (r.description) lines.push(`   ${r.description}`);
   });
   if (verdict.pendingEscalations > 0) {

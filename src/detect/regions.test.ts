@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { PNG } from "pngjs";
-import { detect } from "./regions.js";
+import { detect, mergeNestedRegions, type CandidateRegion } from "./regions.js";
 import type { DomNode } from "./dom-diff.js";
 
 function solidPng(width: number, height: number, rgb: [number, number, number]): Buffer {
@@ -164,4 +164,40 @@ test("detect: removed element region uses the replacement's after-rect and keeps
   // region rect = the replacement's after-rect (link-2 at 35,10), not the vacated 40,10
   assert.deepEqual({ x: removed.x, y: removed.y, w: removed.w, h: removed.h }, { x: 35, y: 10, w: 20, h: 10 });
   assert.deepEqual(removed.counterpartRect, { x: 40, y: 10, w: 15, h: 10 });
+});
+
+// ── v0.3 semantic region merging ──
+
+function geomRegion(x: number, y: number, w: number, h: number, id = ""): CandidateRegion {
+  return { x, y, w, h, source: "dom", domChangedFields: ["position"], domId: id, rectDelta: { dx: 4, dy: 0, dw: 0, dh: 0 } };
+}
+
+test("mergeNestedRegions: a child moving inside its moving parent collapses into the parent", () => {
+  const card = geomRegion(10, 10, 100, 60, "card-1");
+  const title = geomRegion(14, 14, 90, 16, ""); // inside card
+  const body = geomRegion(14, 34, 90, 30, "");  // inside card
+  const merged = mergeNestedRegions([title, body, card]);
+  assert.equal(merged.length, 1);
+  assert.equal(merged[0].domId, "card-1");
+});
+
+test("mergeNestedRegions: non-geometry children are kept even when nested", () => {
+  const card = geomRegion(10, 10, 100, 60, "card-1");
+  const textChild: CandidateRegion = { x: 14, y: 14, w: 90, h: 16, source: "dom", domChangedFields: ["text"], domId: "t" };
+  const merged = mergeNestedRegions([textChild, card]);
+  assert.equal(merged.length, 2); // text change is not a follower
+});
+
+test("mergeNestedRegions: sibling moves are not merged (no containment)", () => {
+  const a = geomRegion(0, 0, 100, 40, "a");
+  const b = geomRegion(110, 0, 100, 40, "b");
+  const merged = mergeNestedRegions([a, b]);
+  assert.equal(merged.length, 2);
+});
+
+test("mergeNestedRegions: equal-rect regions don't loop or merge", () => {
+  const a = geomRegion(0, 0, 100, 40, "a");
+  const b = geomRegion(0, 0, 100, 40, "b");
+  const merged = mergeNestedRegions([a, b]);
+  assert.equal(merged.length, 2);
 });

@@ -8,9 +8,10 @@
 // DOM snapshots it degrades to pixel-only mode: detection falls through the
 // relaxed no-change rule and every significant region escalates to the VLM.
 
-import { detect, DEFAULT_PIXEL_ONLY_THRESHOLD } from "../detect/regions.js";
+import { detect, mergeNestedRegions, DEFAULT_PIXEL_ONLY_THRESHOLD } from "../detect/regions.js";
 import { describeRegions } from "../describe/describe.js";
 import { classifyDetectedRegions, MAX_REGIONS_TO_CLASSIFY } from "../eval/baselines.js";
+import { pairSeverity, severityOfRegion, type Severity } from "./severity.js";
 import type { CandidateRegion } from "../detect/regions.js";
 import type { ChangeKind } from "../classify/vlm-classify.js";
 import type { Provider } from "../provider/types.js";
@@ -37,6 +38,8 @@ export interface RegionVerdict {
   /** why the region needed the VLM (escalated regions only) */
   reason?: string;
   rootCause?: boolean;
+  /** deterministic severity: breaking / moderate / cosmetic */
+  severity?: Severity;
   inputTokens: number;
   outputTokens: number;
   cached?: boolean;
@@ -52,6 +55,8 @@ export interface DiffVerdict {
   changeType?: ChangeKind;
   /** pair-level one-sentence summary */
   summary?: string;
+  /** most severe region's severity (CI gate signal) */
+  severity?: Severity;
   regions: RegionVerdict[];
   /** escalated regions left unresolved because no provider was supplied */
   pendingEscalations: number;
@@ -96,7 +101,8 @@ export async function diffPair(
   }
 
   const maxRegions = options.maxRegions ?? MAX_REGIONS_TO_CLASSIFY;
-  const sorted = [...detection.regions].sort((a, b) => b.w * b.h - a.w * a.h).slice(0, maxRegions);
+  const merged = mergeNestedRegions(detection.regions);
+  const sorted = [...merged].sort((a, b) => b.w * b.h - a.w * a.h).slice(0, maxRegions);
 
   const descriptions = describeRegions(sorted);
   const verdicts: RegionVerdict[] = [];
@@ -113,6 +119,10 @@ export async function diffPair(
         description: d.description,
         confidence: d.confidence,
         rootCause: d.rootCause,
+        severity: severityOfRegion({
+          changeType: d.changeType, w: region.w, h: region.h,
+          rectDelta: region.rectDelta, values: region.domValues,
+        }),
         inputTokens: 0,
         outputTokens: 0,
       });
@@ -136,6 +146,7 @@ export async function diffPair(
           description: c.description,
           confidence: c.confidence,
           rootCause: true, // pixel-only repaints are their own root cause
+          severity: severityOfRegion({ changeType: c.changeType, w: c.region.w, h: c.region.h }),
           inputTokens: c.usage.inputTokens,
           outputTokens: c.usage.outputTokens,
           cached: c.cached,
@@ -177,12 +188,14 @@ export async function diffPair(
   }
 
   const primary = verdicts[0];
+  const severities = verdicts.map((v) => v.severity).filter((s): s is Severity => s !== undefined);
   return {
     changed,
     visualOnly: detection.visualOnly,
     ...audit,
     changeType: primary.changeType,
     summary: primary.description,
+    severity: pairSeverity(severities),
     regions: verdicts,
     pendingEscalations,
     inputTokens: verdicts.reduce((s, v) => s + v.inputTokens, 0),

@@ -61,6 +61,43 @@ export interface DetectionResult {
   visualOnly: boolean;
 }
 
+const GEOMETRY_ONLY = new Set(["position", "size"]);
+function isGeometryOnlyRegion(r: CandidateRegion): boolean {
+  return !!r.domChangedFields && r.domChangedFields.length > 0 && r.domChangedFields.every((f) => GEOMETRY_ONLY.has(f));
+}
+function containsRect(a: { x: number; y: number; w: number; h: number }, b: { x: number; y: number; w: number; h: number }): boolean {
+  return b.x >= a.x && b.y >= a.y && b.x + b.w <= a.x + a.w && b.y + b.h <= a.y + a.h;
+}
+
+/**
+ * Semantic merge: a geometry-only region fully contained in a larger
+ * geometry-only region is the same logical move (a card and its children
+ * moving together is one move). Collapse the inner into the outer so a
+ * single logical change doesn't fan out into N regions. Applied at the
+ * pipeline level (not in detect()) so detection stays granular for metrics.
+ */
+export function mergeNestedRegions(regions: CandidateRegion[]): CandidateRegion[] {
+  const result = [...regions];
+  let changed = true;
+  while (changed) {
+    changed = false;
+    outer: for (let i = 0; i < result.length; i++) {
+      for (let j = 0; j < result.length; j++) {
+        if (i === j) continue;
+        const inner = result[i];
+        const outer = result[j];
+        if (!isGeometryOnlyRegion(inner) || !isGeometryOnlyRegion(outer)) continue;
+        if (outer.w * outer.h <= inner.w * inner.h) continue; // outer must be strictly larger
+        if (!containsRect(outer, inner)) continue;
+        result.splice(i, 1);
+        changed = true;
+        break outer;
+      }
+    }
+  }
+  return result;
+}
+
 function rectsOverlap(a: { x: number; y: number; w: number; h: number }, b: { x: number; y: number; w: number; h: number }): boolean {
   return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
 }
