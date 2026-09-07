@@ -54,15 +54,15 @@ export function generateVisualReport(input: VisualReportInput): string {
         ${(() => {
           const fields = r.evidence?.domChangedFields;
           const text = fields && fields.length > 0
-            ? `evidence: DOM ${fields.join(", ")}${fields
+            ? `evidence: DOM ${fields
                 .filter((f) => r.evidence?.domValues?.[f])
                 .slice(0, 2)
                 .map((f) => {
                   const v = r.evidence!.domValues![f];
                   const cut = (s: string) => (s.length > 28 ? s.slice(0, 25) + "…" : s);
-                  return ` — ${f}: ${cut(v.before)} → ${cut(v.after)}`;
+                  return `${f}: ${cut(v.before)} → ${cut(v.after)}`;
                 })
-                .join(";")}`
+                .join("; ") || fields.join(", ")}`
             : r.evidence?.escalationReason
               ? `evidence: ${r.evidence.escalationReason}`
               : "";

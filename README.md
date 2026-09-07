@@ -290,6 +290,10 @@ node dist/cli/main.js diff before.png after.png --dom-before before.dom.json --d
 - `--json` emits machine-readable output; exit codes are CI-friendly: **0** = no change, **1** = change detected, **2** = error, **3** = change detected but needs a VLM key.
 - `--no-vlm` runs detection+routing with zero API calls (escalated regions are listed as pending).
 - `--report <file.html>` writes a shareable report: before/after side-by-side with numbered region overlays + per-region severity/route cards.
+
+![HTML report: annotated regions, severity, and DOM evidence](docs/report-example.png)
+
+*The `--report` output on a real pair: before/after side-by-side, the after frame annotated with numbered region boxes, and each region card carrying its type, severity, route, and the DOM evidence (`backgroundColor: rgb(37,99,235) → rgb(220,38,38)`) the description was derived from.*
 - API keys come from the environment or a local `.env` file (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `MOONSHOT_API_KEY`, `DASHSCOPE_API_KEY`, `OPENCODE_API_KEY`); `--provider`/`--model` override the preset.
 
 ### Baseline workflow (watch a project over time)
