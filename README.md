@@ -4,6 +4,8 @@
 
 A research prototype demonstrating that **deterministic DOM diffing + perceptual pixel diffing → VLM classification** significantly outperforms naive "feed-two-screenshots-to-VLM" approaches for UI visual regression detection.
 
+**v0.4 (2026-09):** trust & cost — every region carries its DOM **evidence**, baseline overwrites require `--yes`, every VLM call is logged to a per-feature **cost log** with an optional budget gate and model routing, API calls get timeouts and output caps, and a "Data handling & privacy" section states exactly what leaves your machine (cropped regions only).
+
 **v0.3 (2026-09):** structural understanding over positional diffing — reorder-robust fuzzy DOM matching (list reorders/head-inserts no longer fan out into phantom regions), semantic region merging, deterministic severity tiers (breaking/moderate/cosmetic), an annotated HTML report (`--report`), and a Percy-style baseline workflow (`init`/`baseline`/`check`).
 
 **v0.2 (2026-09):** the pipeline became a usable tool — a `vlm-diff` CLI diffs any two screenshots, an MCP server gives coding agents a visual-regression sense, pixel-only changes (canvas repaints, image swaps) are covered end-to-end, and every headline number carries a confidence interval. See [CHANGELOG](CHANGELOG.md).
