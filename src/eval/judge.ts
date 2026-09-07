@@ -24,12 +24,16 @@ export async function judgeDescription(
 ): Promise<JudgeScore> {
   if (!predicted) return { score: 1, rationale: "no description produced" };
 
-  const result = await provider.send(JUDGE_SYSTEM, [
-    {
-      role: "user",
-      content: [textBlock(`Ground truth: ${groundTruth}\nPredicted: ${predicted}`)],
-    },
-  ]);
+  const result = await provider.send(
+    JUDGE_SYSTEM,
+    [
+      {
+        role: "user",
+        content: [textBlock(`Ground truth: ${groundTruth}\nPredicted: ${predicted}`)],
+      },
+    ],
+    { fn: "judge", maxTokens: 1024 },
+  );
 
   return parseJudgeScore(result.text);
 }

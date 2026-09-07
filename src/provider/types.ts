@@ -12,10 +12,17 @@ export interface TurnResult {
   usage: { inputTokens: number; outputTokens: number };
 }
 
+export interface SendOpts {
+  /** what this call is for ("classify-region", "judge", …) — recorded in the cost log */
+  fn?: string;
+  /** hard output cap for this call; descriptions are one sentence, judges return small JSON */
+  maxTokens?: number;
+}
+
 export interface Provider {
   readonly name: string;
   readonly model: string;
-  send(system: string, messages: Msg[]): Promise<TurnResult>;
+  send(system: string, messages: Msg[], opts?: SendOpts): Promise<TurnResult>;
 }
 
 export function textBlock(text: string): ContentBlock {

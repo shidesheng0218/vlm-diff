@@ -1,5 +1,34 @@
 # Changelog
 
+## [0.4.0] — 2026-09-04
+
+The "trust & cost" release — turning the pipeline into something you can run inside a real workflow and defend in a review.
+
+### Verifiability (evidence everywhere)
+
+- Every region verdict now carries `evidence`: the exact DOM properties it was derived from and their before/after values (deterministic tier), or the escalation reason (VLM tier). Surfaced in the CLI, the JSON output, the HTML report, and the MCP tool — you can check any description against the raw values that produced it.
+
+### Reliability
+
+- Every API call has a 120s timeout (`VLM_DIFF_TIMEOUT_MS`), applied inside the retry layer so a hung call becomes a retryable failure instead of a stalled run.
+- Per-call output caps: classification 512 tokens, judges/raw 1024 (the OpenAI adapter previously sent no cap at all).
+
+### User control & trust
+
+- **Baseline overwrite requires explicit confirmation**: `vlm-diff baseline` against an existing golden state prints the affected pages and exits until you pass `--yes`. The gate refuses before any network/capture work happens.
+- **Run history**: every `baseline`/`check` appends an auditable JSON line to `.vlm-diff/history.jsonl` (timestamp, pages, verdicts, exit code).
+- `check` now prints a concrete next step on failure (`baseline --yes` if the change is intentional).
+
+### Cost as a product feature
+
+- **Cost log**: every VLM call records `{ts, fn, provider, model, tokens, latencyMs, costUsd, ok}` to `.cache/cost-log.jsonl` — per-feature spend is answerable with `jq`. `fn` attributes calls to `classify-region` / `raw-pair` / `judge` / `judge-blind`.
+- **Budget gate**: `VLM_DIFF_BUDGET_USD` fails fast when a session's estimated spend crosses the cap.
+- **Model routing (opt-in)**: high-volume region classification can run on a cheaper tier (`VLM_DIFF_CLASSIFY_MODEL`, or the preset's documented cheap model) while the full-image arm stays on the reasoning model. Nothing routes unless configured — results never change silently.
+
+Docs: README gains a "Data handling & privacy" boundary section (what leaves the machine: cropped regions only; what never leaves: keys, full screenshots, DOM snapshots, baselines).
+
+Tests: 185 → 194.
+
 ## [0.3.0] — 2026-09-04
 
 The "structural understanding" release: positional diffing → keyed matching, plus a product-grade shell.

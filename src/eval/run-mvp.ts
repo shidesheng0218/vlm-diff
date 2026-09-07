@@ -117,10 +117,23 @@ async function main() {
     return p;
   });
 
-  const provider = createProvider({
+  // Model routing: high-volume per-region classification can run on a cheaper
+  // tier (VLM_DIFF_CLASSIFY_MODEL or the preset's cheapModel); the full-image
+  // raw arm stays on the reasoning tier. Identical models when nothing is
+  // configured — routing is opt-in and never changes results silently.
+  const reasoningProvider = createProvider({
     provider: process.env.VLM_DIFF_MVP_PROVIDER,
     model: process.env.VLM_DIFF_MVP_MODEL,
   });
+  const classifyProvider = createProvider({
+    provider: process.env.VLM_DIFF_MVP_PROVIDER,
+    model: process.env.VLM_DIFF_MVP_MODEL,
+    tier: "cheap",
+  });
+  const provider = reasoningProvider; // report identity
+  if (classifyProvider.model !== reasoningProvider.model) {
+    console.log(`  [router] classification → ${classifyProvider.model}; raw arm → ${reasoningProvider.model}\n`);
+  }
 
   console.log(`MVP eval: ${pairs.length} pairs, model=${provider.model}\n`);
 
@@ -189,10 +202,10 @@ async function main() {
     return results;
   }
 
-  const tieredResults = await runBaseline("tieredPipeline (deterministic-first)", "tieredPipeline", (p) => runTieredPipeline(provider, p, DATA_DIR, undefined));
-  const pipelineHintResults = await runBaseline("fullPipeline + DOM hint", "fullPipelineWithDomHint", (p) => runFullPipeline(provider, p, DATA_DIR, undefined, true));
-  const pipelineNoHintResults = await runBaseline("fullPipeline (no hint, ablation)", "fullPipelineNoHint", (p) => runFullPipeline(provider, p, DATA_DIR, undefined, false));
-  const rawResults = await runBaseline("rawPairToVlm", "rawPairToVlm", (p) => runRawPairToVlm(provider, p, DATA_DIR));
+  const tieredResults = await runBaseline("tieredPipeline (deterministic-first)", "tieredPipeline", (p) => runTieredPipeline(classifyProvider, p, DATA_DIR, undefined));
+  const pipelineHintResults = await runBaseline("fullPipeline + DOM hint", "fullPipelineWithDomHint", (p) => runFullPipeline(classifyProvider, p, DATA_DIR, undefined, true));
+  const pipelineNoHintResults = await runBaseline("fullPipeline (no hint, ablation)", "fullPipelineNoHint", (p) => runFullPipeline(classifyProvider, p, DATA_DIR, undefined, false));
+  const rawResults = await runBaseline("rawPairToVlm", "rawPairToVlm", (p) => runRawPairToVlm(reasoningProvider, p, DATA_DIR));
 
   const tieredSummary = summarize(pairs, tieredResults);
   const hintSummary = summarize(pairs, pipelineHintResults);
@@ -217,6 +230,7 @@ async function main() {
     generatedAt: new Date().toISOString(),
     type: "mvp-validation",
     model: provider.model,
+    ...(classifyProvider.model !== provider.model ? { classifyModel: classifyProvider.model } : {}),
     n: pairs.length,
     pairIds: ids,
     ...(checkpoint.errors.length > 0 ? { errors: checkpoint.errors } : {}),

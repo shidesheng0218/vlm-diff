@@ -51,6 +51,23 @@ export function generateVisualReport(input: VisualReportInput): string {
         <div class="region-head"><span class="num" style="background:${SEV_STYLE[r.severity ?? "cosmetic"].match(/color:([^;]+)/)?.[1] ?? "#2563eb"}">${i + 1}</span>
           <strong>${esc(r.changeType ?? "pending")}</strong> ${sevBadge} ${routeBadge}</div>
         ${r.description ? `<div class="desc">${esc(r.description)}</div>` : ""}
+        ${(() => {
+          const fields = r.evidence?.domChangedFields;
+          const text = fields && fields.length > 0
+            ? `evidence: DOM ${fields.join(", ")}${fields
+                .filter((f) => r.evidence?.domValues?.[f])
+                .slice(0, 2)
+                .map((f) => {
+                  const v = r.evidence!.domValues![f];
+                  const cut = (s: string) => (s.length > 28 ? s.slice(0, 25) + "…" : s);
+                  return ` — ${f}: ${cut(v.before)} → ${cut(v.after)}`;
+                })
+                .join(";")}`
+            : r.evidence?.escalationReason
+              ? `evidence: ${r.evidence.escalationReason}`
+              : "";
+          return text ? `<div class="meta evidence">${esc(text)}</div>` : "";
+        })()}
         <div class="meta">(${r.x},${r.y}) ${r.w}×${r.h} · ${r.source}${r.confidence !== undefined ? ` · conf ${r.confidence.toFixed(2)}` : ""}${r.inputTokens + r.outputTokens > 0 ? ` · ${r.inputTokens}+${r.outputTokens} tok` : ""}</div>
       </div>`;
     })
@@ -91,6 +108,7 @@ export function generateVisualReport(input: VisualReportInput): string {
   .badge-vlm { background: #fef3c7; color: #92400e; }
   .desc { font-size: 13px; margin: 2px 0; }
   .meta { font-size: 11px; color: #888; }
+  .meta.evidence { color: #6d28d9; font-family: ui-monospace, monospace; }
   .note { background: #fffbeb; border: 1px solid #fde68a; color: #92400e; padding: 10px 14px; border-radius: 10px; margin-bottom: 16px; font-size: 13px; }
   footer { color: #999; font-size: 11px; margin-top: 24px; }
 </style>

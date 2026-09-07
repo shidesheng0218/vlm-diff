@@ -22,9 +22,21 @@ function isRetryable(err: unknown): boolean {
   const status = (err as { status?: number })?.status;
   if (status === 429) return true;
   if (typeof status === "number" && status >= 500) return true;
-  // network-level failures (no HTTP status at all)
-  if (status === undefined && err instanceof Error && /fetch|network|ECONNRESET|ETIMEDOUT|socket/i.test(err.message)) return true;
+  // network-level failures and timeouts (no HTTP status at all)
+  if (status === undefined && err instanceof Error && /fetch|network|ECONNRESET|ETIMEDOUT|socket|timed?\s?out/i.test(err.message)) return true;
   return false;
+}
+
+/** Reject if `p` doesn't settle within `ms`. Placed *inside* the retry layer
+ *  so a hung API call becomes a retryable failure instead of a stalled run. */
+export function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+    p.then(
+      (v) => { clearTimeout(timer); resolve(v); },
+      (err) => { clearTimeout(timer); reject(err); },
+    );
+  });
 }
 
 export async function withRetry<T>(fn: () => Promise<T>, opts: RetryOptions = {}): Promise<T> {

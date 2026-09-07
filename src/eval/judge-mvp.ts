@@ -127,9 +127,11 @@ async function main() {
 
     let verdict: JudgeVerdict | undefined;
     try {
-      const result = await judge.send(SYSTEM_PROMPT, [
-        { role: "user", content: [{ type: "text", text: user }] },
-      ]);
+      const result = await judge.send(
+        SYSTEM_PROMPT,
+        [{ role: "user", content: [{ type: "text", text: user }] }],
+        { fn: "judge-blind", maxTokens: 1024 },
+      );
       verdict = parseVerdict(result.text);
     } catch (err) {
       skipped.push({ id, reason: `judge call failed: ${err instanceof Error ? err.message : err}` });

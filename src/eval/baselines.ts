@@ -59,17 +59,21 @@ export async function runRawPairToVlm(provider: Provider, pair: PairRecord, data
   const before = await readFile(`${dataDir}/${pair.before}`);
   const after = await readFile(`${dataDir}/${pair.after}`);
 
-  const result = await provider.send(RAW_PAIR_SYSTEM, [
-    {
-      role: "user",
-      content: [
-        textBlock("Before:"),
-        imageBlock(before.toString("base64"), "image/png"),
-        textBlock("After:"),
-        imageBlock(after.toString("base64"), "image/png"),
-      ],
-    },
-  ]);
+  const result = await provider.send(
+    RAW_PAIR_SYSTEM,
+    [
+      {
+        role: "user",
+        content: [
+          textBlock("Before:"),
+          imageBlock(before.toString("base64"), "image/png"),
+          textBlock("After:"),
+          imageBlock(after.toString("base64"), "image/png"),
+        ],
+      },
+    ],
+    { fn: "raw-pair", maxTokens: 1024 },
+  );
 
   let changed = false;
   let changeType: ChangeKind | undefined;

@@ -109,6 +109,23 @@ test("diffPair: without a provider, escalations stay pending", async () => {
   assert.ok(verdict.regions.every((r) => r.route === "vlm" && r.changeType === undefined));
 });
 
+test("diffPair: deterministic regions carry DOM evidence (provenance)", async () => {
+  const provider = scriptedProvider([{ text: "{}" }]);
+  const domBefore = JSON.stringify([buttonNode()]);
+  const domAfter = JSON.stringify([
+    buttonNode({ style: { ...buttonNode().style, backgroundColor: "rgb(220, 38, 38)" } }),
+  ]);
+  const before = solidPng(200, 200, [255, 255, 255]);
+  const after = blockPng(200, 200, { x: 10, y: 10, w: 40, h: 40 }, [220, 38, 38]);
+
+  const verdict = await diffPair(before, after, domBefore, domAfter, { provider });
+
+  const region = verdict.regions[0];
+  assert.deepEqual(region.evidence?.domChangedFields, ["backgroundColor"]);
+  assert.equal(region.evidence?.domValues?.backgroundColor.before, "rgb(37, 99, 235)");
+  assert.equal(region.evidence?.domValues?.backgroundColor.after, "rgb(220, 38, 38)");
+});
+
 test("diffPair: identical frames return unchanged with zero regions", async () => {
   const img = solidPng(200, 200, [255, 255, 255]);
   const dom = JSON.stringify([buttonNode()]);

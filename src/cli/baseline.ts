@@ -6,12 +6,31 @@
 // All files live under .vlm-diff/ so the state is version-controllable and
 // the project root is anchored (see cli/project.ts).
 
-import { mkdir, readFile, writeFile, access } from "node:fs/promises";
+import { mkdir, readFile, writeFile, access, readdir, appendFile } from "node:fs/promises";
 import path from "node:path";
 import { diffPair, type DiffVerdict } from "../core/diff.js";
 import { cacheDir, projectFile } from "./project.js";
 import { FileCacheStore } from "../cache/store.js";
 import type { Provider } from "../provider/types.js";
+
+/** Append-only run history: every baseline/check leaves a line you can audit later. */
+async function appendHistory(root: string, entry: Record<string, unknown>): Promise<void> {
+  try {
+    await appendFile(projectFile(root, "history.jsonl"), JSON.stringify({ ts: new Date().toISOString(), ...entry }) + "\n", "utf8");
+  } catch {
+    // history must never break a run
+  }
+}
+
+/** PNG basenames currently stored as golden baselines (for the overwrite gate). */
+export async function existingBaselinePages(root: string): Promise<string[]> {
+  try {
+    const files = await readdir(projectFile(root, "baseline"));
+    return files.filter((f) => f.endsWith(".png")).map((f) => f.replace(/\.png$/, ""));
+  } catch {
+    return [];
+  }
+}
 
 export interface PageTarget {
   name: string;
@@ -87,16 +106,35 @@ async function capturePages(config: VlmDiffConfig): Promise<CapturedPage[]> {
   }
 }
 
-export async function runBaseline(root: string): Promise<PageTarget[]> {
+/**
+ * Write golden baselines. Overwriting an existing baseline is an irreversible
+ * action (the old golden state is gone), so the caller must pass `force: true`
+ * after surfacing the impact — the CLI prints the affected pages and asks for
+ * `--yes`. Returns `skipped: true` when the gate refused to overwrite.
+ */
+export async function runBaseline(
+  root: string,
+  opts: { force?: boolean } = {},
+): Promise<{ pages: PageTarget[]; skipped: boolean }> {
   const config = await loadConfig(root);
   const dir = projectFile(root, "baseline");
+  const existing = await existingBaselinePages(root);
+  if (existing.length > 0 && !opts.force) {
+    return { pages: [], skipped: true };
+  }
+
   await mkdir(dir, { recursive: true });
   const captured = await capturePages(config);
   for (const c of captured) {
     await writeFile(path.join(dir, `${c.name}.png`), c.png);
     await writeFile(path.join(dir, `${c.name}.dom.json`), c.dom);
   }
-  return config.pages;
+  await appendHistory(root, {
+    action: "baseline",
+    overwritten: existing.length > 0,
+    pages: captured.map((c) => ({ name: c.name, url: c.url })),
+  });
+  return { pages: config.pages, skipped: false };
 }
 
 /**
@@ -129,6 +167,17 @@ export async function runCheck(
       });
     }
   }
+  await appendHistory(root, {
+    action: "check",
+    exitCode: checkExitCode(results),
+    pages: results.map((r) => ({
+      name: r.name,
+      changed: r.verdict?.changed ?? null,
+      changeType: r.verdict?.changeType ?? null,
+      severity: r.verdict?.severity ?? null,
+      ...(r.error ? { error: r.error } : {}),
+    })),
+  });
   return results;
 }
 

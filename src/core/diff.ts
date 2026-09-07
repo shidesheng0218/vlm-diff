@@ -25,6 +25,22 @@ export interface DiffOptions {
   maxRegions?: number;
 }
 
+/**
+ * Why this description should be believed: the DOM evidence the description
+ * was derived from. Deterministic regions carry the changed computed
+ * properties and their before/after values; escalated regions carry whatever
+ * DOM fields existed (usually none) plus the escalation reason. This is the
+ * verifiability contract — a user can check the claim against raw values.
+ */
+export interface RegionEvidence {
+  /** computed properties the DOM diff saw change, e.g. ["backgroundColor"] */
+  domChangedFields?: string[];
+  /** before/after values per changed property */
+  domValues?: Record<string, { before: string; after: string }>;
+  /** for escalated regions: why no deterministic description was possible */
+  escalationReason?: string;
+}
+
 export interface RegionVerdict {
   x: number;
   y: number;
@@ -40,6 +56,8 @@ export interface RegionVerdict {
   rootCause?: boolean;
   /** deterministic severity: breaking / moderate / cosmetic */
   severity?: Severity;
+  /** the evidence the description was derived from */
+  evidence?: RegionEvidence;
   inputTokens: number;
   outputTokens: number;
   cached?: boolean;
@@ -123,6 +141,10 @@ export async function diffPair(
           changeType: d.changeType, w: region.w, h: region.h,
           rectDelta: region.rectDelta, values: region.domValues,
         }),
+        evidence: {
+          domChangedFields: region.domChangedFields,
+          domValues: region.domValues,
+        },
         inputTokens: 0,
         outputTokens: 0,
       });
@@ -138,6 +160,9 @@ export async function diffPair(
         options.provider, options.cache, beforePng, afterPng, escalated, true, maxRegions,
       );
       for (const c of classifications) {
+        const srcRegion = escalated.find(
+          (r) => r.x === c.region.x && r.y === c.region.y && r.w === c.region.w && r.h === c.region.h,
+        );
         verdicts.push({
           x: c.region.x, y: c.region.y, w: c.region.w, h: c.region.h,
           source: c.source,
@@ -147,6 +172,10 @@ export async function diffPair(
           confidence: c.confidence,
           rootCause: true, // pixel-only repaints are their own root cause
           severity: severityOfRegion({ changeType: c.changeType, w: c.region.w, h: c.region.h }),
+          evidence: {
+            domChangedFields: srcRegion?.domChangedFields,
+            escalationReason: "pixel-only region: no DOM signal",
+          },
           inputTokens: c.usage.inputTokens,
           outputTokens: c.usage.outputTokens,
           cached: c.cached,

@@ -1,6 +1,8 @@
 import Anthropic from "@anthropic-ai/sdk";
-import type { ContentBlock, Msg, Provider, TurnResult } from "./types.js";
-import { withRetry } from "./retry.js";
+import type { ContentBlock, Msg, Provider, SendOpts, TurnResult } from "./types.js";
+import { withRetry, withTimeout } from "./retry.js";
+
+const DEFAULT_TIMEOUT_MS = 120_000;
 
 export class AnthropicProvider implements Provider {
   readonly name = "anthropic";
@@ -13,14 +15,20 @@ export class AnthropicProvider implements Provider {
     this.client = new Anthropic({ apiKey, maxRetries: 0, ...(url ? { baseURL: url } : {}) });
   }
 
-  async send(system: string, messages: Msg[]): Promise<TurnResult> {
+  async send(system: string, messages: Msg[], opts?: SendOpts): Promise<TurnResult> {
+    const timeoutMs = Number(process.env.VLM_DIFF_TIMEOUT_MS ?? DEFAULT_TIMEOUT_MS);
     const resp = await withRetry(() =>
-      this.client.messages.create({
-        model: this.model,
-        max_tokens: 2048,
-        system,
-        messages: messages.map(toAnthropic),
-      }),
+      withTimeout(
+        this.client.messages.create({
+          model: this.model,
+          // per-call cap; the old hardcoded 2048 stays the ceiling
+          max_tokens: Math.min(opts?.maxTokens ?? 2048, 2048),
+          system,
+          messages: messages.map(toAnthropic),
+        }),
+        timeoutMs,
+        `${this.name}/${this.model}`,
+      ),
     );
 
     let text = "";

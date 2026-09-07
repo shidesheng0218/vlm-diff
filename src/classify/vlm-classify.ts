@@ -140,17 +140,23 @@ export async function classifyRegion(
   afterCrop: Buffer,
   hint?: DomHint,
 ): Promise<Classification> {
-  const result = await provider.send(buildSystemPrompt(hint), [
-    {
-      role: "user",
-      content: [
-        textBlock("Before region:"),
-        imageBlock(beforeCrop.toString("base64"), "image/png"),
-        textBlock("After region:"),
-        imageBlock(afterCrop.toString("base64"), "image/png"),
-      ],
-    },
-  ]);
+  const result = await provider.send(
+    buildSystemPrompt(hint),
+    [
+      {
+        role: "user",
+        content: [
+          textBlock("Before region:"),
+          imageBlock(beforeCrop.toString("base64"), "image/png"),
+          textBlock("After region:"),
+          imageBlock(afterCrop.toString("base64"), "image/png"),
+        ],
+      },
+    ],
+    // one sentence + a small JSON object: a tight output cap keeps this the
+    // cheapest call in the pipeline and the cost log can attribute it
+    { fn: "classify-region", maxTokens: 512 },
+  );
 
   return { ...parseClassification(result.text), usage: result.usage };
 }

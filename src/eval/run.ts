@@ -30,11 +30,15 @@ async function main() {
   const datasetJson = await readFile(join(DATA_DIR, "dataset.json"), "utf8");
   const pairs: PairRecord[] = JSON.parse(datasetJson);
   const provider = createProvider();
+  const classifyProvider = createProvider({ tier: "cheap" });
   const judgeProvider = createJudgeProvider(provider);
   const cacheEnabled = process.env.VLM_DIFF_NO_CACHE !== "1";
   const cache = cacheEnabled ? new FileCacheStore(CACHE_DIR) : undefined;
 
   console.log(`Loaded ${pairs.length} pairs. Running baselines with ${provider.name}/${provider.model}...`);
+  if (classifyProvider.model !== provider.model) {
+    console.log(`  [router] classification → ${classifyProvider.model}; raw + judge stay on ${provider.model}/${judgeProvider.model}`);
+  }
   console.log(`Judging descriptions with ${judgeProvider.name}/${judgeProvider.model}...`);
   console.log(`Classification cache: ${cacheEnabled ? `enabled (${CACHE_DIR})` : "disabled"}\n`);
 
@@ -61,9 +65,9 @@ async function main() {
     const raw = await tryRun("raw", pair.id, () => runRawPairToVlm(provider, pair, DATA_DIR));
     if (raw) rawResults.push(raw);
     pixelResults.push(await runPixelDiffOnly(pair, DATA_DIR)); // deterministic, cannot fail on API
-    const pipeline = await tryRun("fullPipeline", pair.id, () => runFullPipeline(provider, pair, DATA_DIR, cache));
+    const pipeline = await tryRun("fullPipeline", pair.id, () => runFullPipeline(classifyProvider, pair, DATA_DIR, cache));
     if (pipeline) pipelineResults.push(pipeline);
-    const tiered = await tryRun("tieredPipeline", pair.id, () => runTieredPipeline(provider, pair, DATA_DIR, cache));
+    const tiered = await tryRun("tieredPipeline", pair.id, () => runTieredPipeline(classifyProvider, pair, DATA_DIR, cache));
     if (tiered) tieredResults.push(tiered);
   }
 

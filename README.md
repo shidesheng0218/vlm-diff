@@ -297,6 +297,8 @@ node dist/cli/main.js init http://localhost:3000/   # .vlm-diff/config.json (pag
 node dist/cli/main.js baseline                       # golden snapshots → .vlm-diff/baseline/
 # …later, after changes…
 node dist/cli/main.js check                          # diff every page vs baseline, CI exit codes
+# if the changes are intentional, refresh the golden state (explicitly confirmed):
+node dist/cli/main.js baseline --yes                 # overwrites baselines; run history in .vlm-diff/history.jsonl
 ```
 
 ### MCP server (give coding agents a visual-regression sense)
@@ -357,6 +359,16 @@ This will:
 
 **Estimated cost**: $3-5 (Anthropic Opus 4.8) or $4-6 (OpenAI GPT-5) on a cold run — see [Cost Optimizations](#cost-optimizations) below for how re-runs get cheaper.
 
+## Data handling & privacy (what goes where)
+
+Trust comes from clear boundaries, not from complexity:
+
+- **What leaves your machine**: only the data needed for a classification — cropped before/after **regions** (never full pages) plus the short DOM-field hint, sent to the model API you configured. Everything else stays local.
+- **What never leaves**: API keys (read from `.env`/environment, gitignored, never logged, never printed), full screenshots, DOM snapshots (which contain your page's text), baselines.
+- **Where state lives**: all local and gitignored — `.vlm-diff/` (config, golden baselines, run history), `.cache/` (classification cache, cost log). Delete either directory and it's gone; nothing is synced anywhere.
+- **No telemetry, no accounts, no servers**: the tool phones exactly one place — your chosen model endpoint — and only when an escalation actually needs a VLM.
+- **Minimal scope**: the MCP server is a local stdio process; it can read only the files you point it at and writes snapshots only to the OS temp dir.
+
 ## Cost Optimizations
 
 Re-running the eval against the same dataset (e.g. in CI on every PR) shouldn't re-pay for classifications it already has an answer for.
@@ -372,6 +384,16 @@ VLM_DIFF_NO_CACHE=1 npm run eval:run  # force a clean run, bypassing the cache
 ```
 
 Cache entries live in `.cache/classifications/` (gitignored) with a 7-day TTL. The store is a small interface (`CacheStore`) so a Redis- or S3-backed implementation can be swapped in for shared/CI caching without touching call sites.
+
+### Cost instrumentation, routing & budgets (v0.4)
+
+Every provider returned by `createProvider` is wrapped in an `InstrumentedProvider`:
+
+- **Cost log** — every VLM call appends one JSON line to `.cache/cost-log.jsonl` (gitignored): `{ts, fn, provider, model, inputTokens, outputTokens, latencyMs, costUsd, ok, error?}`. `fn` names the call site (`classify-region`, `raw-pair`, `judge`, `judge-blind`), so per-feature spend is answerable with `jq` alone. Path override: `VLM_DIFF_COST_LOG_PATH`.
+- **Output caps** — per-call `maxTokens` (classification 512, judges/raw 1024); the OpenAI adapter previously sent no cap at all.
+- **Budget gate** — `VLM_DIFF_BUDGET_USD=0.50` fails fast once a session's estimated spend crosses the cap, instead of silently running up a bill.
+- **Model routing** — high-volume region classification can run on a cheaper tier than full-image reasoning: set `VLM_DIFF_CLASSIFY_MODEL=qwen3.8-flash` (or rely on the preset's documented cheap model). Nothing routes unless configured — eval numbers never change silently.
+- **Timeouts** — every API call carries a 120s timeout (`VLM_DIFF_TIMEOUT_MS`), applied *inside* the retry layer so a hung call becomes a retryable failure, not a stalled run.
 
 ### Cost tracking
 

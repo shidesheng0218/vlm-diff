@@ -1,6 +1,8 @@
 import OpenAI from "openai";
-import type { ContentBlock, Msg, Provider, TurnResult } from "./types.js";
-import { withRetry } from "./retry.js";
+import type { ContentBlock, Msg, Provider, SendOpts, TurnResult } from "./types.js";
+import { withRetry, withTimeout } from "./retry.js";
+
+const DEFAULT_TIMEOUT_MS = 120_000;
 
 export class OpenAICompatProvider implements Provider {
   readonly name: string;
@@ -13,12 +15,19 @@ export class OpenAICompatProvider implements Provider {
     this.client = new OpenAI({ apiKey, baseURL, maxRetries: 0 });
   }
 
-  async send(system: string, messages: Msg[]): Promise<TurnResult> {
+  async send(system: string, messages: Msg[], opts?: SendOpts): Promise<TurnResult> {
+    const timeoutMs = Number(process.env.VLM_DIFF_TIMEOUT_MS ?? DEFAULT_TIMEOUT_MS);
     const resp = await withRetry(() =>
-      this.client.chat.completions.create({
-        model: this.model,
-        messages: [{ role: "system", content: system }, ...messages.map(toOpenAI)],
-      }),
+      withTimeout(
+        this.client.chat.completions.create({
+          model: this.model,
+          messages: [{ role: "system", content: system }, ...messages.map(toOpenAI)],
+          // the OpenAI adapter previously sent NO output cap at all
+          ...(opts?.maxTokens ? { max_completion_tokens: opts.maxTokens } : {}),
+        }),
+        timeoutMs,
+        `${this.name}/${this.model}`,
+      ),
     );
 
     const text = resp.choices[0]?.message?.content ?? "";

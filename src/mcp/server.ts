@@ -37,6 +37,12 @@ function formatVerdict(verdict: DiffVerdict): string {
     const sev = r.severity ? ` · ${r.severity}` : "";
     lines.push(`${i + 1}. (${r.x},${r.y} ${r.w}×${r.h}) [${r.source} → ${r.route}] ${r.changeType ?? "?"}${sev}${pending}`);
     if (r.description) lines.push(`   ${r.description}`);
+    const fields = r.evidence?.domChangedFields;
+    if (fields && fields.length > 0) {
+      lines.push(`   evidence: DOM ${fields.join(", ")}`);
+    } else if (r.evidence?.escalationReason) {
+      lines.push(`   evidence: ${r.evidence.escalationReason}`);
+    }
   });
   if (verdict.pendingEscalations > 0) {
     lines.push(`note: ${verdict.pendingEscalations} region(s) need a VLM — set an API key for the server to resolve them`);

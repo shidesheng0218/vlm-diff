@@ -13,7 +13,7 @@ import { diffPair, type DiffVerdict } from "../core/diff.js";
 import { createProvider, PRESETS } from "../provider/factory.js";
 import { FileCacheStore } from "../cache/store.js";
 import { cacheDir, findProjectRoot } from "./project.js";
-import { runInit, runBaseline, runCheck, checkExitCode } from "./baseline.js";
+import { runInit, runBaseline, runCheck, checkExitCode, existingBaselinePages } from "./baseline.js";
 
 function usage(): string {
   return `vlm-diff — deterministic-first UI screenshot diffing
@@ -23,6 +23,7 @@ Usage:
   vlm-diff snapshot <url-or-file> --out-dom <file.json> [--out-png <file.png>] [options]
   vlm-diff init [url]       create .vlm-diff/config.json (optionally seeded with a page)
   vlm-diff baseline         snapshot every configured page into .vlm-diff/baseline/
+                            (overwriting an existing baseline requires --yes)
   vlm-diff check            re-capture pages and diff against the baseline
 
 diff options:
@@ -120,6 +121,24 @@ function tryCreateProvider(args: ParsedArgs, json: boolean) {
   }
 }
 
+/** One-line provenance summary: which DOM properties drove the description. */
+function evidenceLine(ev?: DiffVerdict["regions"][number]["evidence"]): string | undefined {
+  if (!ev) return undefined;
+  const fields = ev.domChangedFields ?? [];
+  if (fields.length === 0) return ev.escalationReason;
+  const transitions = fields
+    .filter((f) => ev.domValues?.[f])
+    .slice(0, 2)
+    .map((f) => {
+      const v = ev.domValues![f];
+      const b = v.before.length > 24 ? v.before.slice(0, 21) + "…" : v.before;
+      const a = v.after.length > 24 ? v.after.slice(0, 21) + "…" : v.after;
+      return `${f}: ${b} → ${a}`;
+    });
+  const rest = fields.length > 2 ? `, +${fields.length - 2} more` : "";
+  return `DOM ${fields.join(", ")}${transitions.length ? ` (${transitions.join("; ")}${rest})` : ""}`;
+}
+
 function printHuman(v: DiffVerdict, hadDom: boolean) {
   console.log(v.changed ? "⚠️  CHANGE DETECTED" : "✅ No meaningful change");
   console.log(
@@ -138,6 +157,8 @@ function printHuman(v: DiffVerdict, hadDom: boolean) {
         `${r.changeType ?? "?"}${sev}${tokens}${pending}`,
     );
     if (r.description) console.log(`      ${r.description}`);
+    const evidence = evidenceLine(r.evidence);
+    if (evidence) console.log(`      evidence: ${evidence}`);
   });
   if (v.inputTokens + v.outputTokens > 0) {
     console.log(`   tokens: ${v.inputTokens} in / ${v.outputTokens} out`);
@@ -191,10 +212,19 @@ async function runInitCmd(args: ParsedArgs): Promise<number> {
   return 0;
 }
 
-async function runBaselineCmd(): Promise<number> {
+async function runBaselineCmd(args: ParsedArgs): Promise<number> {
   const root = findProjectRoot();
-  const pages = await runBaseline(root);
-  console.log(`baseline written: ${pages.length} page(s) → ${root}/.vlm-diff/baseline/`);
+  const force = args.flags.get("yes") === true;
+  const existing = await existingBaselinePages(root);
+  if (existing.length > 0 && !force) {
+    // overwriting golden baselines is irreversible — show the blast radius first
+    console.log(`⚠ a baseline already exists for ${existing.length} page(s): ${existing.join(", ")}`);
+    console.log("  overwriting replaces the golden state irreversibly.");
+    console.log("  pass --yes to confirm: vlm-diff baseline --yes");
+    return 2;
+  }
+  const { pages } = await runBaseline(root, { force: true });
+  console.log(`baseline written: ${pages.length} page(s) → ${root}/.vlm-diff/baseline/${existing.length > 0 ? " (overwritten)" : ""}`);
   for (const p of pages) console.log(`  ${p.name}: ${p.url}`);
   return 0;
 }
@@ -220,6 +250,9 @@ async function runCheckCmd(args: ParsedArgs): Promise<number> {
   }
   const code = checkExitCode(results);
   if (code === 1 && anyBreaking) console.log("\n⛔ breaking changes detected");
+  if (code === 1) {
+    console.log("\nnext steps: if these changes are intentional, update the golden state with `vlm-diff baseline --yes` (history is kept in .vlm-diff/history.jsonl)");
+  }
   if (code === 3) console.log("\nnote: some pages need a VLM API key to finish classifying (exit 3)");
   return code;
 }
@@ -236,7 +269,7 @@ async function main(): Promise<number> {
   if (command === "diff") return runDiff(args);
   if (command === "snapshot") return runSnapshot(args);
   if (command === "init") return runInitCmd(args);
-  if (command === "baseline") return runBaselineCmd();
+  if (command === "baseline") return runBaselineCmd(args);
   if (command === "check") return runCheckCmd(args);
   console.error(`unknown command: ${command}\n\n` + usage());
   return 2;
