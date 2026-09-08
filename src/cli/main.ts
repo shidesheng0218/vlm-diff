@@ -292,7 +292,7 @@ async function main(): Promise<number> {
   const [command, ...rest] = process.argv.slice(2);
   const args = parseArgs(rest);
 
-  if (!command || command === "help" || args.flags.get("help") === true) {
+  if (!command || command === "help" || command === "--help" || command === "-h" || args.flags.get("help") === true) {
     console.log(usage());
     return command ? 0 : 2;
   }

@@ -1,5 +1,7 @@
 # VLM-Diff: The visual verifier for agentic coding workflows
 
+[![npm](https://img.shields.io/npm/v/vlm-diff)](https://www.npmjs.com/package/vlm-diff)
+[![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![CI](https://github.com/shidesheng0218/vlm-diff/actions/workflows/ci.yml/badge.svg)](https://github.com/shidesheng0218/vlm-diff/actions/workflows/ci.yml)
 
 **Did my UI change, and what exactly?** vlm-diff answers it for coding agents and CI pipelines — DOM-grounded, deterministic-first (zero tokens for DOM-explained changes), with severity tiers, DOM evidence for every description, and an annotated frame showing where the changes are. Use it via **MCP** (agents verify their own edits), the **CLI**, or the **GitHub Action** (PRs gate on severity).
@@ -291,17 +293,15 @@ Two of three criteria confirmed with real API calls. The third produced the MVP'
 ### Diff your own screenshots (CLI)
 
 ```bash
-git clone https://github.com/shidesheng0218/vlm-diff.git
-cd vlm-diff
-npm install && npm run build
+npm i -g vlm-diff          # or: git clone … && npm install && npm run build
 
 # capture DOM snapshots + screenshots of any page (before/after your change)
-node dist/cli/main.js snapshot http://localhost:3000 --out-dom before.dom.json --out-png before.png
+vlm-diff snapshot http://localhost:3000 --out-dom before.dom.json --out-png before.png
 # …apply the change…
-node dist/cli/main.js snapshot http://localhost:3000 --out-dom after.dom.json --out-png after.png
+vlm-diff snapshot http://localhost:3000 --out-dom after.dom.json --out-png after.png
 
 # tiered diff: deterministic descriptions at 0 tokens, VLM only for pixel-only deltas
-node dist/cli/main.js diff before.png after.png --dom-before before.dom.json --dom-after after.dom.json \
+vlm-diff diff before.png after.png --dom-before before.dom.json --dom-after after.dom.json \
   --report report.html   # self-contained HTML: before/after with annotated region boxes
 ```
 
@@ -318,12 +318,12 @@ node dist/cli/main.js diff before.png after.png --dom-before before.dom.json --d
 ### Baseline workflow (watch a project over time)
 
 ```bash
-node dist/cli/main.js init http://localhost:3000/   # .vlm-diff/config.json (pages to watch)
-node dist/cli/main.js baseline                       # golden snapshots → .vlm-diff/baseline/
+vlm-diff init http://localhost:3000/   # .vlm-diff/config.json (pages to watch)
+vlm-diff baseline                       # golden snapshots → .vlm-diff/baseline/
 # …later, after changes…
-node dist/cli/main.js check                          # diff every page vs baseline, CI exit codes
+vlm-diff check                          # diff every page vs baseline, CI exit codes
 # if the changes are intentional, refresh the golden state (explicitly confirmed):
-node dist/cli/main.js baseline --yes                 # overwrites baselines; run history in .vlm-diff/history.jsonl
+vlm-diff baseline --yes                 # overwrites baselines; run history in .vlm-diff/history.jsonl
 ```
 
 ### MCP server (agents verify their own UI edits)
