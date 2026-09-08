@@ -37,6 +37,17 @@ test("cropRegion: clamps padding at image edges", () => {
   assert.ok(decoded.width >= 5);
 });
 
+test("cropRegion: off-frame regions clamp instead of crashing", () => {
+  // regression: a scaled element can extend beyond the viewport; cropping it
+  // used to throw "bitblt reading outside image"
+  const src = solidPng(100, 100, [255, 255, 255]);
+  const outOfBounds = { x: 90, y: 95, w: 80, h: 60, source: "dom" as const };
+  const crop = cropRegion(src, outOfBounds);
+  const decoded = PNG.sync.read(crop);
+  assert.ok(decoded.width >= 1 && decoded.height >= 1);
+  assert.ok(decoded.width <= 100 && decoded.height <= 100);
+});
+
 test("parseClassification: parses well-formed JSON", () => {
   const result = parseClassification('{"changeType":"color-change","description":"button turned red","confidence":0.9}');
   assert.equal(result.changeType, "color-change");

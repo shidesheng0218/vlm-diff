@@ -25,7 +25,9 @@
     "demo:detect": "tsx scripts/demo-detect.ts",
     "mcp:server": "node dist/mcp/server.js",
     "mcp:smoke": "npm run build && tsx scripts/mcp-smoke.ts",
-    "judge:calibrate": "tsx scripts/judge-calibration.ts"
+    "judge:calibrate": "tsx scripts/judge-calibration.ts",
+    "export:labels": "tsx scripts/export-training-data.ts",
+    "eval:specialist": "tsx scripts/eval-specialist.ts"
   },
   "engines": {
     "node": ">=20"

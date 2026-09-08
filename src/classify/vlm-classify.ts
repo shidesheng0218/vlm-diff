@@ -49,10 +49,12 @@ const CROP_PADDING = 16;
 /** Crop a region (with padding) out of a full-frame PNG buffer. */
 export function cropRegion(pngBuffer: Buffer, region: CandidateRegion): Buffer {
   const src = PNG.sync.read(pngBuffer);
-  const x = Math.max(0, region.x - CROP_PADDING);
-  const y = Math.max(0, region.y - CROP_PADDING);
-  const w = Math.min(src.width - x, region.w + 2 * CROP_PADDING);
-  const h = Math.min(src.height - y, region.h + 2 * CROP_PADDING);
+  // Regions can extend beyond the frame (e.g. a 1.35× scale pushes an element
+  // partially off-viewport); clamp into bounds and never emit a 0-size crop.
+  const x = Math.max(0, Math.min(src.width - 1, region.x - CROP_PADDING));
+  const y = Math.max(0, Math.min(src.height - 1, region.y - CROP_PADDING));
+  const w = Math.max(1, Math.min(src.width - x, region.w + 2 * CROP_PADDING));
+  const h = Math.max(1, Math.min(src.height - y, region.h + 2 * CROP_PADDING));
 
   const out = new PNG({ width: w, height: h });
   PNG.bitblt(src, out, x, y, w, h, 0, 0);

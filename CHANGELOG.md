@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.5.1] — 2026-09-08
+
+### Fixed
+
+- **GitHub Action**: a failing `check` inside the composite action aborted the run before the report upload and PR comment steps could execute (found by a real PR test). The check step now only records outputs; a final "Fail per policy" step surfaces the failure after artifacts and comments are in place. Verified end-to-end on a live PR: severity comment posted, `vlm-diff-reports` artifact uploaded, and the check still fails correctly under `fail-on: any`.
+- `cropRegion` no longer crashes on regions that extend beyond the frame (scaled elements partially off-viewport) — clamps into bounds with a minimum 1px crop.
+
+### Specialist model tooling (path C)
+
+- **`npm run export:labels`**: materializes the deterministic tier's free labels — 652 labeled region-crop pairs (636 deterministic at zero cost + 16 pixel-only labels already paid for in the v0.2 run) into `data/training/`.
+- **`npm run eval:specialist`**: evaluates any candidate classifier on the exported labels (hint-free, exact-match type accuracy, per-kind breakdown, cost-logged).
+- **Baseline measured**: qwen3.8-max hint-free on the labels scores 50% — every miss is the model hedging subtle changes into `other`, which is exactly what a specialist trained on these labels must fix. Fine-tune entitlement on DashScope's native API verified (200); the job itself is deferred deliberately — it's recurring paid infrastructure, documented in [docs/specialist-model.md](docs/specialist-model.md).
+
 ## [0.5.0] — 2026-09-07
 
 The "agent verifier" release: vlm-diff is now positioned as the visual verification layer for agentic coding workflows.
