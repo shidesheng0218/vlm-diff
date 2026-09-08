@@ -1,8 +1,12 @@
-# VLM-Diff: Visual Regression Detection with Structural Ground Truth
+# VLM-Diff: The visual verifier for agentic coding workflows
 
 [![CI](https://github.com/shidesheng0218/vlm-diff/actions/workflows/ci.yml/badge.svg)](https://github.com/shidesheng0218/vlm-diff/actions/workflows/ci.yml)
 
-A research prototype demonstrating that **deterministic DOM diffing + perceptual pixel diffing → VLM classification** significantly outperforms naive "feed-two-screenshots-to-VLM" approaches for UI visual regression detection.
+**Did my UI change, and what exactly?** vlm-diff answers it for coding agents and CI pipelines — DOM-grounded, deterministic-first (zero tokens for DOM-explained changes), with severity tiers, DOM evidence for every description, and an annotated frame showing where the changes are. Use it via **MCP** (agents verify their own edits), the **CLI**, or the **GitHub Action** (PRs gate on severity).
+
+Born as a research prototype demonstrating that **deterministic DOM diffing + perceptual pixel diffing → VLM classification** significantly outperforms naive "feed-two-screenshots-to-VLM" approaches.
+
+**v0.5 (2026-09):** agent verifier — MCP tools now return **annotated frames as image blocks** plus typed `structuredContent` (migrated to `registerTool`), `check` gains a CI contract (`--json` + per-page HTML reports), a composite **GitHub Action** ships in the repo root, and [agent recipes](docs/agent-recipes.md) cover Claude Code / Cursor / ZCode.
 
 **v0.4 (2026-09):** trust & cost — every region carries its DOM **evidence**, baseline overwrites require `--yes`, every VLM call is logged to a per-feature **cost log** with an optional budget gate and model routing, API calls get timeouts and output caps, and a "Data handling & privacy" section states exactly what leaves your machine (cropped regions only).
 
@@ -307,13 +311,26 @@ node dist/cli/main.js check                          # diff every page vs baseli
 node dist/cli/main.js baseline --yes                 # overwrites baselines; run history in .vlm-diff/history.jsonl
 ```
 
-### MCP server (give coding agents a visual-regression sense)
+### MCP server (agents verify their own UI edits)
 
 ```bash
 claude mcp add vlm-diff -- node /path/to/vlm-diff/dist/mcp/server.js
 ```
 
-Exposes two tools over stdio: `diff_screenshots` (the full tiered diff) and `snapshot_url` (capture a DOM snapshot + screenshot of a URL). Any MCP-compatible client works; `npm run mcp:smoke` walks the full handshake offline.
+Two tools over stdio: `snapshot_url` (capture a URL's DOM snapshot + screenshot) and `diff_screenshots` (the full tiered diff). Since v0.5, tool results include **typed `structuredContent`** (no JSON-in-text parsing) and the **annotated after frame as an image block** — the agent literally sees the numbered, severity-colored regions. Any MCP-compatible client works; `npm run mcp:smoke` walks the full handshake offline.
+
+**Integration recipes** for Claude Code / Cursor / ZCode: [docs/agent-recipes.md](docs/agent-recipes.md).
+
+### GitHub Action (gate PRs on visual severity)
+
+```yaml
+- uses: shidesheng0218/vlm-diff@v0.5.0
+  with:
+    fail-on: breaking        # breaking | any | never
+    # provider: dashscope    # optional — only needed for pixel-only escalation
+```
+
+The composite action installs, builds, runs `vlm-diff check --json --report`, uploads annotated per-page HTML reports as an artifact, and comments a severity table on the PR. It consumes the same exit-code contract as the CLI (`0/1/2/3`): errors always fail, changes fail per `fail-on`, "needs a VLM key" warns without failing. Baselines live in `.vlm-diff/baseline/` (commit them: `vlm-diff init <url> && vlm-diff baseline --yes`).
 
 ### Demos (no API keys needed)
 

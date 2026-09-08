@@ -140,15 +140,17 @@ export async function runBaseline(
 /**
  * Re-capture every configured page and diff against the stored baseline.
  * Exit semantics mirror `diff`: caller maps to 0 clean / 1 changed / 3 needs VLM.
+ * `reportDir` writes one annotated HTML report per changed page (CI artifact).
  */
 export async function runCheck(
   root: string,
-  opts: { provider?: Provider; noVlm?: boolean } = {},
+  opts: { provider?: Provider; noVlm?: boolean; reportDir?: string } = {},
 ): Promise<PageCheckResult[]> {
   const config = await loadConfig(root);
   const dir = projectFile(root, "baseline");
   const captured = await capturePages(config);
 
+  if (opts.reportDir) await mkdir(opts.reportDir, { recursive: true });
   const results: PageCheckResult[] = [];
   for (const c of captured) {
     try {
@@ -159,6 +161,13 @@ export async function runCheck(
         cache: new FileCacheStore(cacheDir(root)),
       });
       results.push({ name: c.name, url: c.url, verdict });
+      if (opts.reportDir && verdict.changed) {
+        const { generateVisualReport } = await import("../report/visual-report.js");
+        await writeFile(
+          path.join(opts.reportDir, `${c.name}.html`),
+          generateVisualReport({ beforePng: basePng, afterPng: c.png, verdict }),
+        );
+      }
     } catch (err) {
       results.push({
         name: c.name,

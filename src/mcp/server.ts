@@ -21,6 +21,7 @@ import { diffPair, type DiffVerdict } from "../core/diff.js";
 import { createProvider, PRESETS } from "../provider/factory.js";
 import { FileCacheStore } from "../cache/store.js";
 import { loadDotEnv } from "../cli/env.js";
+import { annotatePng } from "../report/overlay-png.js";
 
 function formatVerdict(verdict: DiffVerdict): string {
   const lines: string[] = [];
@@ -59,25 +60,46 @@ function tryProvider(providerName?: string, modelName?: string) {
   }
 }
 
+const verdictOutputShape = {
+  changed: z.boolean(),
+  visualOnly: z.boolean(),
+  pixelChangedCount: z.number(),
+  pixelChangedFraction: z.number(),
+  changeType: z.string().optional(),
+  summary: z.string().optional(),
+  severity: z.string().optional(),
+  pendingEscalations: z.number(),
+  inputTokens: z.number(),
+  outputTokens: z.number(),
+};
+
 async function main() {
   loadDotEnv();
-  const server = new McpServer({ name: "vlm-diff", version: "0.2.0" });
+  const server = new McpServer({ name: "vlm-diff", version: "0.5.0" });
 
-  server.tool(
+  server.registerTool(
     "diff_screenshots",
-    "Diff two UI screenshots with deterministic-first visual regression analysis. " +
-      "Regions explained by DOM snapshots are described at zero VLM cost; pixel-only " +
-      "deltas (canvas repaints, image swaps) escalate to a VLM when an API key is configured. " +
-      "Exit semantics: returns whether anything changed, where, and one-sentence descriptions.",
     {
-      before: z.string().describe("absolute path to the before PNG"),
-      after: z.string().describe("absolute path to the after PNG"),
-      dom_before: z.string().optional().describe("absolute path to the before DOM snapshot JSON (from snapshot_url)"),
-      dom_after: z.string().optional().describe("absolute path to the after DOM snapshot JSON (from snapshot_url)"),
-      provider: z.enum(Object.keys(PRESETS) as [string, ...string[]]).optional().describe("VLM provider override"),
-      model: z.string().optional().describe("model id override"),
+      title: "Diff two UI screenshots",
+      description:
+        "Diff two UI screenshots with deterministic-first visual regression analysis. " +
+        "Regions explained by DOM snapshots are described at zero VLM cost; pixel-only " +
+        "deltas (canvas repaints, image swaps) escalate to a VLM when an API key is configured. " +
+        "Returns a text summary, the structured verdict (change type, severity, per-region " +
+        "descriptions with DOM evidence), and the after frame annotated with numbered " +
+        "severity-colored region boxes.",
+      inputSchema: {
+        before: z.string().describe("absolute path to the before PNG"),
+        after: z.string().describe("absolute path to the after PNG"),
+        dom_before: z.string().optional().describe("absolute path to the before DOM snapshot JSON (from snapshot_url)"),
+        dom_after: z.string().optional().describe("absolute path to the after DOM snapshot JSON (from snapshot_url)"),
+        provider: z.enum(Object.keys(PRESETS) as [string, ...string[]]).optional().describe("VLM provider override"),
+        model: z.string().optional().describe("model id override"),
+        include_images: z.boolean().optional().describe("return annotated frames as image blocks (default true)"),
+      },
+      outputSchema: verdictOutputShape,
     },
-    async ({ before, after, dom_before, dom_after, provider, model }) => {
+    async ({ before, after, dom_before, dom_after, provider, model, include_images }) => {
       const [beforePng, afterPng] = await Promise.all([readFile(before), readFile(after)]);
       const [domBeforeJson, domAfterJson] = await Promise.all([
         dom_before ? readFile(dom_before, "utf8") : Promise.resolve(undefined),
@@ -87,20 +109,39 @@ async function main() {
         provider: tryProvider(provider, model),
         cache: new FileCacheStore(".cache/classifications"),
       });
-      return { content: [{ type: "text", text: formatVerdict(verdict) }] };
+
+      const content: Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }> = [
+        { type: "text", text: formatVerdict(verdict) },
+      ];
+      if (include_images !== false) {
+        // annotated after frame: the agent can SEE where the regions are
+        const annotated = annotatePng(
+          afterPng,
+          verdict.regions.map((r, i) => ({ x: r.x, y: r.y, w: r.w, h: r.h, index: i + 1, severity: r.severity })),
+        );
+        content.push(
+          { type: "image", data: annotated.toString("base64"), mimeType: "image/png" },
+          { type: "image", data: beforePng.toString("base64"), mimeType: "image/png" },
+        );
+      }
+      return { content, structuredContent: { ...verdict } };
     },
   );
 
-  server.tool(
+  server.registerTool(
     "snapshot_url",
-    "Capture a DOM snapshot (JSON) and a screenshot (PNG) of a URL with headless Chromium. " +
-      "Capture before and after a change, then pass both to diff_screenshots. " +
-      "Returns the file paths to use for diffing.",
     {
-      url: z.string().describe("http(s):// URL or a local file path to render"),
-      width: z.number().optional().describe("viewport width (default 960)"),
-      height: z.number().optional().describe("viewport height (default 500)"),
-      wait_ms: z.number().optional().describe("settle time before capture in ms (default 100)"),
+      title: "Capture a DOM snapshot + screenshot of a URL",
+      description:
+        "Capture a DOM snapshot (JSON) and a screenshot (PNG) of a URL with headless Chromium. " +
+        "Capture before and after a change, then pass both to diff_screenshots. " +
+        "Returns the file paths to use for diffing plus the screenshot itself.",
+      inputSchema: {
+        url: z.string().describe("http(s):// URL or a local file path to render"),
+        width: z.number().optional().describe("viewport width (default 960)"),
+        height: z.number().optional().describe("viewport height (default 500)"),
+        wait_ms: z.number().optional().describe("settle time before capture in ms (default 100)"),
+      },
     },
     async ({ url, width, height, wait_ms }) => {
       const { chromium } = await import("playwright");
@@ -132,6 +173,7 @@ async function main() {
               type: "text",
               text: `snapshot captured (${elementCount} DOM elements)\ndom_snapshot: ${domPath}\nscreenshot: ${pngPath}\n\nPass these paths to diff_screenshots (dom_before/dom_after + before/after).`,
             },
+            { type: "image", data: (png as Buffer).toString("base64"), mimeType: "image/png" },
           ],
         };
       } finally {

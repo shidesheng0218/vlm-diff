@@ -1,0 +1,149 @@
+name: "VLM-Diff Visual Check"
+description: >-
+  Verify UI changes against golden baselines. Deterministic-first detection
+  (zero tokens for DOM-explained changes), severity tiers (breaking/moderate/
+  cosmetic), annotated HTML reports, and DOM evidence for every description.
+author: "shidesheng0218"
+branding:
+  icon: "eye"
+  color: "blue"
+
+inputs:
+  config-path:
+    description: "Directory containing .vlm-diff/ (usually the repo root)"
+    required: false
+    default: "."
+  provider:
+    description: "VLM provider for pixel-only escalation (anthropic | openai | moonshot | dashscope | opencode). Optional — DOM-only changes need no key."
+    required: false
+    default: ""
+  model:
+    description: "Model id override for the VLM escalation tier"
+    required: false
+    default: ""
+  fail-on:
+    description: "When to fail the step: breaking | any | never"
+    required: false
+    default: "any"
+  post-comment:
+    description: "Post a severity summary as a PR comment"
+    required: false
+    default: "true"
+  budget-usd:
+    description: "Optional VLM spend cap for this run (VLM_DIFF_BUDGET_USD)"
+    required: false
+    default: ""
+
+outputs:
+  exit-code:
+    description: "vlm-diff check exit code (0 clean / 1 changed / 2 error / 3 needs VLM key)"
+    value: ${{ steps.check.outputs.exit_code }}
+  failed:
+    description: "Whether the step failed per the fail-on policy"
+    value: ${{ steps.check.outputs.fail }}
+
+runs:
+  using: "composite"
+  steps:
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 20
+
+    - name: Install action dependencies
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      run: npm ci
+
+    - name: Install Chromium
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      run: npx playwright install chromium
+
+    - name: Build vlm-diff
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      run: npm run build
+
+    - name: Run vlm-diff check
+      id: check
+      shell: bash
+      working-directory: ${{ inputs.config-path }}
+      env:
+        VLM_DIFF_BUDGET_USD: ${{ inputs.budget-usd }}
+      run: |
+        if [ ! -d .vlm-diff/baseline ]; then
+          echo "::warning::No .vlm-diff/baseline found. Run 'vlm-diff init <url>' + 'vlm-diff baseline --yes' and commit the golden state."
+          echo "exit_code=0" >> "$GITHUB_OUTPUT"
+          echo "fail=0" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        PROVIDER_ARGS=""
+        if [ -n "${{ inputs.provider }}" ]; then PROVIDER_ARGS="--provider ${{ inputs.provider }}"; fi
+        if [ -n "${{ inputs.model }}" ]; then PROVIDER_ARGS="$PROVIDER_ARGS --model ${{ inputs.model }}"; fi
+
+        set +e
+        node "${{ github.action_path }}/dist/cli/main.js" check --json --report .vlm-diff/reports $PROVIDER_ARGS > /tmp/vlm-diff-check.out 2>&1
+        CODE=$?
+        set -e
+        tail -1 /tmp/vlm-diff-check.out > /tmp/vlm-diff-check.json
+        echo "exit_code=$CODE" >> "$GITHUB_OUTPUT"
+
+        # exit-code semantics: 2 = error (always fail), 1 = changes (fail per
+        # fail-on), 3 = needs VLM key (warn, never fail)
+        FAIL=0
+        if [ "$CODE" = "2" ]; then
+          FAIL=1
+          echo "::error::vlm-diff check errored (exit 2). See logs."
+        elif [ "$CODE" = "1" ]; then
+          case "${{ inputs.fail-on }}" in
+            any) FAIL=1 ;;
+            breaking)
+              if grep -q '"severity":"breaking"' /tmp/vlm-diff-check.json; then FAIL=1; fi
+              ;;
+            never) FAIL=0 ;;
+          esac
+        elif [ "$CODE" = "3" ]; then
+          echo "::warning::Some pixel-only regions need a VLM API key to classify (exit 3). Not failing; set a provider key + re-run for full coverage."
+        fi
+        echo "fail=$FAIL" >> "$GITHUB_OUTPUT"
+        echo "vlm-diff check finished: exit=$CODE fail=$FAIL (fail-on=${{ inputs.fail-on }})"
+        if [ "$FAIL" = "1" ]; then exit 1; fi
+
+    - name: Upload annotated reports
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: vlm-diff-reports
+        path: ${{ inputs.config-path }}/.vlm-diff/reports
+        if-no-files-found: ignore
+
+    - name: Comment severity summary on PR
+      if: inputs.post-comment == 'true' && github.event_name == 'pull_request' && steps.check.outputs.exit_code != '0'
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const fs = require("fs");
+          const result = JSON.parse(fs.readFileSync("/tmp/vlm-diff-check.json", "utf8"));
+          const icon = { breaking: "⛔", moderate: "🟡", cosmetic: "🔵" };
+          const rows = result.pages.map((p) => {
+            if (p.error) return `| ${p.name} | — | — | error: ${p.error} |`;
+            if (!p.changed) return `| ${p.name} | — | — | no change |`;
+            const sev = p.severity ?? "?";
+            return `| ${p.name} | ${p.changeType ?? "?"} | ${icon[sev] ?? ""} ${sev} | ${p.regions} region(s)${p.pendingEscalations ? ` · ${p.pendingEscalations} pending VLM` : ""} |`;
+          });
+          const body = [
+            "### 👁 VLM-Diff visual check",
+            "",
+            "| page | type | severity | detail |",
+            "|---|---|---|---|",
+            ...rows,
+            "",
+            `exit code ${result.exitCode} · annotated reports in the **vlm-diff-reports** artifact · run \`vlm-diff baseline --yes\` if these changes are intentional`,
+          ].join("\n");
+          github.rest.issues.createComment({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: context.issue.number,
+            body,
+          });

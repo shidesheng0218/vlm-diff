@@ -108,8 +108,8 @@ async function main() {
         dom_after: domAfterPath,
       },
     });
-    const content = (callResult.result as { content?: Array<{ type: string; text: string }> })?.content ?? [];
-    const text = content.map((c) => c.text).join("\n");
+    const content = (callResult.result as { content?: Array<{ type: string; text?: string; data?: string; mimeType?: string }> })?.content ?? [];
+    const text = content.filter((c) => c.type === "text").map((c) => c.text).join("\n");
     console.log("✓ tools/call diff_screenshots:");
     console.log(text.split("\n").slice(0, 4).map((l) => `    ${l}`).join("\n"));
     if (!/CHANGE DETECTED/.test(text)) {
@@ -118,6 +118,26 @@ async function main() {
     if (!/background color changed from blue/.test(text)) {
       throw new Error("expected the deterministic color description in the verdict");
     }
+
+    // structured output: typed verdict, not JSON embedded in text (v0.5)
+    const structured = (callResult.result as { structuredContent?: { changed?: boolean; changeType?: string; severity?: string } })?.structuredContent;
+    if (!structured || structured.changed !== true) {
+      throw new Error(`structuredContent missing or wrong: ${JSON.stringify(structured)}`);
+    }
+    console.log(`✓ structuredContent: changed=${structured.changed} type=${structured.changeType} severity=${structured.severity}`);
+
+    // image blocks: annotated after frame + before frame, decodable PNGs
+    const images = content.filter((c) => c.type === "image");
+    if (images.length < 2) {
+      throw new Error(`expected ≥2 image blocks (annotated after + before), got ${images.length}`);
+    }
+    const { PNG } = await import("pngjs");
+    for (const img of images) {
+      if (img.mimeType !== "image/png") throw new Error(`unexpected mimeType ${img.mimeType}`);
+      const decoded = PNG.sync.read(Buffer.from(img.data!, "base64"));
+      if (decoded.width <= 0 || decoded.height <= 0) throw new Error("image block is not a decodable PNG");
+    }
+    console.log(`✓ ${images.length} image blocks returned (annotated frames, all decodable)`);
 
     console.log("\n✅ MCP smoke test passed");
   } finally {

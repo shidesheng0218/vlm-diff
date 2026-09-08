@@ -59,3 +59,27 @@ jobs:
             --dom-before /tmp/dom-b.json --dom-after /tmp/dom-a.json
       - name: MCP smoke (stdio handshake + deterministic diff)
         run: npx tsx scripts/mcp-smoke.ts
+
+  # The composite GitHub Action exercised end-to-end against a real baseline:
+  # seed a golden state from a fixture, then run the action — a clean baseline
+  # must pass. (The PR-comment path needs PR context and is covered by the
+  # script being identical to the smoke-checked shape.)
+  action-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci
+      - run: npx playwright install chromium
+      - run: npm run build
+      - name: Create golden baseline from a fixture page
+        run: |
+          node dist/cli/main.js init "file://$PWD/src/dataset/fixtures/card-list.html"
+          node dist/cli/main.js baseline --yes
+      - name: Run vlm-diff action (clean baseline must pass)
+        uses: ./
+        with:
+          post-comment: "false"
+          fail-on: "any"

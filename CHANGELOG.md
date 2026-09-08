@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.5.0] — 2026-09-07
+
+The "agent verifier" release: vlm-diff is now positioned as the visual verification layer for agentic coding workflows.
+
+### MCP: agents can now see
+
+- **`diff_screenshots` returns annotated frames as MCP image blocks** — the after frame with numbered, severity-colored region boxes (new pixel-level `annotatePng`, extracted from the demo GIF script into `src/report/overlay-png.ts`), plus the before frame. Agents verify visually, not just textually.
+- **Typed `structuredContent`** via `registerTool` + `outputSchema` — the verdict is typed JSON, no more JSON-embedded-in-text.
+- `snapshot_url` returns the screenshot as an image block too.
+- `include_images: false` opts out for text-only clients.
+
+### CI contract
+
+- `vlm-diff check --json` emits one structured line (`{exitCode, pages[]}` with changeType/severity/regions/pendingEscalations per page).
+- `vlm-diff check --report <dir>` writes an annotated HTML report per changed page (CI artifact).
+
+### GitHub Action
+
+- Composite action in the repo root (`action.yml`): install → build → check → upload annotated reports → PR comment with a severity table. Consumes the exit-code contract correctly (errors always fail; changes fail per `fail-on: breaking|any|never`; "needs VLM key" warns without failing). Self-tested in CI (`action-smoke` job).
+
+### Docs
+
+- README repositioned as "the visual verifier for agentic coding workflows"; new [agent recipes](docs/agent-recipes.md) for Claude Code / Cursor / ZCode.
+
+Tests: 194 → 197.
+
 ## [0.4.0] — 2026-09-04
 
 The "trust & cost" release — turning the pipeline into something you can run inside a real workflow and defend in a review.

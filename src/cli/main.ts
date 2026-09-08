@@ -232,7 +232,37 @@ async function runBaselineCmd(args: ParsedArgs): Promise<number> {
 async function runCheckCmd(args: ParsedArgs): Promise<number> {
   const root = findProjectRoot();
   const noVlm = args.flags.get("no-vlm") === true;
-  const results = await runCheck(root, { provider: noVlm ? undefined : tryCreateProvider(args, false), noVlm });
+  const json = args.flags.get("json") === true;
+  const reportFlag = args.flags.get("report");
+  const reportDir = typeof reportFlag === "string" ? reportFlag : undefined;
+  const results = await runCheck(root, {
+    provider: noVlm ? undefined : tryCreateProvider(args, json),
+    noVlm,
+    reportDir,
+  });
+  const code = checkExitCode(results);
+
+  if (json) {
+    // CI/Action contract: one JSON line, summary per page + exit code
+    console.log(JSON.stringify({
+      exitCode: code,
+      pages: results.map((r) => ({
+        name: r.name,
+        url: r.url,
+        ...(r.error
+          ? { error: r.error }
+          : {
+              changed: r.verdict!.changed,
+              changeType: r.verdict!.changeType ?? null,
+              severity: r.verdict!.severity ?? null,
+              regions: r.verdict!.regions.length,
+              pendingEscalations: r.verdict!.pendingEscalations,
+            }),
+      })),
+    }));
+    return code;
+  }
+
   let anyBreaking = false;
   for (const r of results) {
     if (r.error) {
@@ -248,7 +278,7 @@ async function runCheckCmd(args: ParsedArgs): Promise<number> {
       console.log(`  ✓ ${r.name}: no change`);
     }
   }
-  const code = checkExitCode(results);
+  if (reportDir) console.log(`📄 annotated reports written to ${reportDir}`);
   if (code === 1 && anyBreaking) console.log("\n⛔ breaking changes detected");
   if (code === 1) {
     console.log("\nnext steps: if these changes are intentional, update the golden state with `vlm-diff baseline --yes` (history is kept in .vlm-diff/history.jsonl)");
