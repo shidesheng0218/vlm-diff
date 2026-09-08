@@ -1,8 +1,7 @@
 {
-  "name": "vlm-diff-eval",
-  "version": "0.5.1",
-  "description": "Deterministic-first UI screenshot diffing: DOM+pixel detection, tiered descriptions, CLI and MCP server for coding agents",
-  "private": true,
+  "name": "vlm-diff",
+  "version": "0.5.2",
+  "description": "The visual verifier for agentic coding workflows — deterministic-first UI screenshot diffing (DOM+pixel), tiered descriptions, CLI, MCP server, GitHub Action",
   "type": "module",
   "bin": {
     "vlm-diff": "dist/cli/main.js",
@@ -27,7 +26,8 @@
     "mcp:smoke": "npm run build && tsx scripts/mcp-smoke.ts",
     "judge:calibrate": "tsx scripts/judge-calibration.ts",
     "export:labels": "tsx scripts/export-training-data.ts",
-    "eval:specialist": "tsx scripts/eval-specialist.ts"
+    "eval:specialist": "tsx scripts/eval-specialist.ts",
+    "prepack": "node scripts/prepack.mjs"
   },
   "engines": {
     "node": ">=20"
@@ -47,5 +47,41 @@
     "gifenc": "^1.0.3",
     "tsx": "^4.23.12",
     "typescript": "^5.7.3"
-  }
+  },
+  "license": "MIT",
+  "author": "shidesheng (https://github.com/shidesheng0218)",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/shidesheng0218/vlm-diff.git"
+  },
+  "homepage": "https://github.com/shidesheng0218/vlm-diff#readme",
+  "keywords": [
+    "visual-regression",
+    "dom-diff",
+    "screenshot-diff",
+    "ui-testing",
+    "vlm",
+    "mcp",
+    "ai-agents",
+    "playwright",
+    "pixelmatch",
+    "verifier"
+  ],
+  "files": [
+    "dist/cli",
+    "dist/core",
+    "dist/detect",
+    "dist/describe",
+    "dist/classify",
+    "dist/provider",
+    "dist/report",
+    "dist/snapshot",
+    "dist/mcp",
+    "dist/cache",
+    "dist/cost",
+    "dist/util",
+    "dist/eval/baselines.js",
+    "dist/eval/types.js",
+    "action.yml"
+  ]
 }

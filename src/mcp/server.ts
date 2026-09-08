@@ -14,6 +14,7 @@ import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
+import { createRequire } from "node:module";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
@@ -75,7 +76,10 @@ const verdictOutputShape = {
 
 async function main() {
   loadDotEnv();
-  const server = new McpServer({ name: "vlm-diff", version: "0.5.0" });
+  // version comes from package.json at runtime — a hardcoded string drifted
+  // behind the real release before (0.5.0 vs 0.5.1)
+  const pkg = createRequire(import.meta.url)("../../package.json") as { version: string };
+  const server = new McpServer({ name: "vlm-diff", version: pkg.version });
 
   server.registerTool(
     "diff_screenshots",

@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.5.2] — 2026-09-08
+
+### Distribution (the last mile)
+
+- **Published to npm as `vlm-diff`**: removed `private: true`, added a `files` whitelist (runtime only — the previously-missing field would have shipped an empty/broken package since `dist/` is gitignored), full metadata (`repository`/`keywords`/`license`/`author`/`homepage`), and a `prepack` step that rebuilds and strips compiled tests. `npm pack --dry-run` verified: 37 files, both bins, zero test/eval/dataset artifacts.
+- LICENSE author placeholder fixed (`shidesheng`); README citation block synced (author + version).
+- MCP server version now read from package.json at runtime (the hardcoded string had drifted a version behind).
+- GitHub: topics set, `v0.5.1` release created; Marketplace listing steps documented in `docs/publish.md` (the final checkbox is GitHub-UI-only).
+
+### Model routing fix
+
+- Classification routing is now **strictly opt-in** via `VLM_DIFF_CLASSIFY_MODEL` only. The v0.4 preset-level default (dashscope → qwen3.8-flash) silently rerouted eval classification and 403'd on entitlement-restricted accounts — caught while probing cross-tier models, removed, and the README's promise corrected.
+
+### Weak-model stress test (third model, 51 pairs)
+
+- `qwen3.7-flash` four-arm replication: raw arm recall **0%** (missed all 34 changed pairs), yet the tiered arm still scored **100% recall / 0% FP / 91.2% type accuracy** — the strongest demonstration yet that the pipeline's robustness is architectural, not model-dependent. DeepSeek/GLM/Kimi entitlement on this account remains denied; Claude/GPT-class replication documented as pending key.
+- The unknown-model pricing warning fired correctly for qwen3.7-flash (its cost is untracked by design).
+
 ## [0.5.1] — 2026-09-08
 
 ### Fixed

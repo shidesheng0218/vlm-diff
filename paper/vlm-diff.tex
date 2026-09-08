@@ -217,6 +217,8 @@ qwen3.8-max & 100 & 0 & \textbf{100} & 90.0 & 90.0 & 83.3 \\
 
 Three findings replicate across vendors. (1) The tiered arm wins identically on both models — its routing and descriptions are byte-identical; only the single escalated region's classification depends on the model. (2) The raw arm's recall ceiling (76.7/83.3\%) is a cross-vendor failure mode: VLMs fail at \textit{finding} subtle changes, not at describing them. (3) New: the crop-then-classify weakness is \textit{model-dependent} — Kimi collapses to 56.7\% without the DOM hint while qwen3.8-max holds 90\%, so the reference-frame amputation effect varies in severity by model; on both models, however, the hint arm never beats the tiered arm, and the deterministic tier sidesteps the output-variance problem entirely (qwen's hinted arm averages 2321 output tokens/pair, 6$\times$ Kimi's).
 
+\textbf{Weak-model stress test (v0.5, 51 pairs).} The strongest evidence that the pipeline's robustness is architectural: on qwen3.7-flash, a model so weak its full-image arm misses \emph{every} changed pair (raw recall 0\%), the tiered pipeline still scores \textbf{100\% recall / 0\% FP / 91.2\% type accuracy} [76.3\%, 98.1\%]. Its only misses are the escalated pixel-only regions where a weak VLM is the sole signal. The hint arm degrades to 35.3\% (no-hint 26.5\%) on the same pairs — confirming the deterministic tier, not the hint alone, carries the robustness.
+
 \subsection{Live Re-Run on the Expanded Subset (v0.2)\label{sec:v02rerun}}
 
 The four-arm protocol was re-run on the expanded 51-pair subset (34 changed — including all 4 pixel-only media pairs — and 17 no-change), qwen3.8-max, with per-pair error isolation and checkpointing active (total cost \$1.36):

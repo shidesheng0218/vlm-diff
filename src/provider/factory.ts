@@ -63,11 +63,12 @@ function instantiate(presetName: string, choice: ProviderChoice): Provider {
   if (!apiKey) throw new Error(`${preset.label} selected but ${preset.keyEnv} is not set.`);
 
   let model = choice.model || process.env[`${presetName.toUpperCase()}_MODEL`] || preset.defaultModel;
-  if (choice.tier === "cheap") {
-    model = process.env.VLM_DIFF_CLASSIFY_MODEL || preset.cheapModel || model;
-    if (model !== (choice.model || process.env[`${presetName.toUpperCase()}_MODEL`] || preset.defaultModel)) {
-      console.log(`[router] classification routed to cheap tier: ${presetName}/${model}`);
-    }
+  if (choice.tier === "cheap" && process.env.VLM_DIFF_CLASSIFY_MODEL) {
+    // strictly opt-in: preset cheapModel is documentation only. Auto-routing
+    // to a preset cheap model silently changed eval results (and 403'd on
+    // accounts without that model's entitlement — found on DashScope).
+    model = process.env.VLM_DIFF_CLASSIFY_MODEL;
+    console.log(`[router] classification routed to cheap tier: ${presetName}/${model}`);
   }
 
   const raw = preset.protocol === "anthropic"

@@ -200,7 +200,22 @@ The four-arm protocol re-run on the expanded 51-pair subset (34 changed — incl
 3. **The tiered arm's only type "miss" is a label-granularity artifact**: on `media-image-src-swap` the ground truth kind is `other`, and the VLM wrote *"the icon background changed from blue to red while the glyph and layout remained identical"* — factually correct, typed color-change. Counted as a miss by exact match; arguably more useful than `other`.
 4. **McNemar, paired**: tiered vs raw recall has 5/0 discordants (p=0.063 — just above the 0.05 line at this sample size); tiered vs hint type accuracy 2/0 (p=0.5). The v0.1 Kimi run's significant recall gap (7/0, p=0.016) is the same direction at higher power.
 
-Note: the v0.2 run is single-model — this DashScope account has access only to qwen3.8-max (kimi/GLM are entitled-denied, qwen3.7-max is text-only). The v0.1 kimi+qwen pair remains the cross-vendor evidence.
+Note: the v0.2 run is single-model — this DashScope account has access only to qwen3.8-max (kimi/GLM/deepseek are entitlement-denied, qwen3.7-max is text-only). The v0.1 kimi+qwen pair remains the cross-vendor evidence.
+
+### Weak-Model Robustness (qwen3.7-flash, 51 pairs, 2026-09-08)
+
+What happens when the VLM tier gets *weak*? The same 51-pair four-arm protocol on `qwen3.8-flash`'s smaller sibling, `qwen3.7-flash` — the most dramatic demonstration yet that the pipeline's strength is architectural, not model-dependent:
+
+| Metric (95% CI) | **tieredPipeline** | fullPipeline + hint | fullPipeline (no hint) | rawPairToVlm |
+|---|---|---|---|---|
+| **Recall** (34 changed) | **100%** [89.7%, 100%] | 100% | 100% | **0%** |
+| **FP rate** (17 no-change) | **0%** [0%, 19.5%] | 0% | 0% | 0% |
+| **Type accuracy** | **91.2%** [76.3%, 98.1%] | 35.3% | 26.5% | 0% |
+
+- **The raw arm's recall collapsed to 0%** — the weak model missed *every single one* of the 34 changed pairs at full-image. "VLMs fail at finding" is not a subtle claim: at the weak end, it's total.
+- **The tiered arm still scored 100% recall / 0% FP / 91.2% type accuracy.** The deterministic tier (0 tokens, model-independent) plus DOM hints kept the pipeline intact; its only 3 misses are the escalated pixel-only media regions where a weak VLM is the *only* signal available.
+- Hint arm without the tiered describer degrades to 35.3%, no-hint to 26.5% — confirming the tier, not the hint alone, is the robustness source.
+- Cost note: `qwen3.7-flash` has no entry in the pricing table, so this run's cost is untracked by design (unknown models warn instead of silently reporting $0); token totals are in the report.
 
 ### Blind Judge: Template vs VLM Description Quality
 
@@ -415,7 +430,7 @@ Every provider returned by `createProvider` is wrapped in an `InstrumentedProvid
 - **Cost log** — every VLM call appends one JSON line to `.cache/cost-log.jsonl` (gitignored): `{ts, fn, provider, model, inputTokens, outputTokens, latencyMs, costUsd, ok, error?}`. `fn` names the call site (`classify-region`, `raw-pair`, `judge`, `judge-blind`), so per-feature spend is answerable with `jq` alone. Path override: `VLM_DIFF_COST_LOG_PATH`.
 - **Output caps** — per-call `maxTokens` (classification 512, judges/raw 1024); the OpenAI adapter previously sent no cap at all.
 - **Budget gate** — `VLM_DIFF_BUDGET_USD=0.50` fails fast once a session's estimated spend crosses the cap, instead of silently running up a bill.
-- **Model routing** — high-volume region classification can run on a cheaper tier than full-image reasoning: set `VLM_DIFF_CLASSIFY_MODEL=qwen3.8-flash` (or rely on the preset's documented cheap model). Nothing routes unless configured — eval numbers never change silently.
+- **Model routing (strictly opt-in)** — high-volume region classification can run on a cheaper tier than full-image reasoning: set `VLM_DIFF_CLASSIFY_MODEL=qwen3.8-flash`. Nothing routes unless the env var is set — eval numbers never change silently (a preset-level default that auto-routed was removed in 0.5.2 after it silently 403'd on entitlement-restricted accounts).
 - **Timeouts** — every API call carries a 120s timeout (`VLM_DIFF_TIMEOUT_MS`), applied *inside* the retry layer so a hung call becomes a retryable failure, not a stalled run.
 
 ### Cost tracking
@@ -588,10 +603,10 @@ If you use this work, please cite:
 ```bibtex
 @software{vlm_diff_2026,
   title={VLM-Diff: Visual Regression Detection with Structural Ground Truth},
-  author={[Your Name]},
+  author={shidesheng},
   year={2026},
   month={September},
-  version={0.2.0},
+  version={0.5.1},
   url={https://github.com/shidesheng0218/vlm-diff},
   note={Deterministic-first UI diffing with tiered VLM escalation: CLI, MCP server, dataset, and evaluation framework}
 }
