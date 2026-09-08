@@ -324,7 +324,7 @@ Two tools over stdio: `snapshot_url` (capture a URL's DOM snapshot + screenshot)
 ### GitHub Action (gate PRs on visual severity)
 
 ```yaml
-- uses: shidesheng0218/vlm-diff@v0.5.0
+- uses: shidesheng0218/vlm-diff@v0.5.1
   with:
     fail-on: breaking        # breaking | any | never
     # provider: dashscope    # optional — only needed for pixel-only escalation

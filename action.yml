@@ -82,6 +82,9 @@ runs:
         if [ -n "${{ inputs.provider }}" ]; then PROVIDER_ARGS="--provider ${{ inputs.provider }}"; fi
         if [ -n "${{ inputs.model }}" ]; then PROVIDER_ARGS="$PROVIDER_ARGS --model ${{ inputs.model }}"; fi
 
+        # NOTE: this step never exits non-zero — a failing step would abort the
+        # composite action before report upload and the PR comment. The failure
+        # is surfaced by the final "Fail per policy" step instead.
         set +e
         node "${{ github.action_path }}/dist/cli/main.js" check --json --report .vlm-diff/reports $PROVIDER_ARGS > /tmp/vlm-diff-check.out 2>&1
         CODE=$?
@@ -108,7 +111,6 @@ runs:
         fi
         echo "fail=$FAIL" >> "$GITHUB_OUTPUT"
         echo "vlm-diff check finished: exit=$CODE fail=$FAIL (fail-on=${{ inputs.fail-on }})"
-        if [ "$FAIL" = "1" ]; then exit 1; fi
 
     - name: Upload annotated reports
       if: always()
@@ -147,3 +149,10 @@ runs:
             issue_number: context.issue.number,
             body,
           });
+
+    - name: Fail per policy
+      if: steps.check.outputs.fail == '1'
+      shell: bash
+      run: |
+        echo "::error::vlm-diff visual check failed (exit code ${{ steps.check.outputs.exit_code }}, fail-on=${{ inputs.fail-on }})"
+        exit 1
