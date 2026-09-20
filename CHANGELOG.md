@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.6.0] — 2026-09-20
+
+The "deepen the moat, strengthen the weaknesses" release.
+
+### Moat: attribute awareness + accessibility signals (all deterministic, zero tokens)
+
+- **Attribute-aware DOM capture** (`src/snapshot/capture.ts`): snapshots now carry a whitelisted attribute set (`src`, `href`, `alt`, `title`, `role`, `aria-label`, `aria-hidden`, `disabled`, `placeholder`). `dom-diff` compares them per node; the describer has attribute templates ("image source changed from … to …", "alt text removed"). Effect: the `image-src-swap` pair moved from the VLM escalation path to the deterministic tier (replay escalation 3.0% → 2.9%), and link-target/alt changes are now free, evidence-carrying detections.
+- **Deterministic accessibility analysis** (`src/core/a11y.ts`): WCAG 2.1 contrast math over the DOM's recorded color values (contrast dropping below AA 4.5:1 is flagged with the exact ratios, e.g. `5.2:1 → 2.9:1`), plus alt/aria-label removal detection. A11y-impacting cosmetic changes lift to `moderate` severity. Surfaced in CLI, JSON, HTML report, and MCP output. New dataset mutations `contrast-degrade` and `alt-remove` exercise both paths (the latter is a zero-pixel change only the DOM layer can see).
+- Dataset: 187 → 193 pairs; offline type accuracy 91.7% → 92.7% (root-cause-first).
+
+### Weaknesses: review + trends (the Percy-style loop, CLI-native)
+
+- **`vlm-diff review`**: after `check` finds changes, approve per page (updates that page's golden baseline) — interactive on a TTY, `--approve a,b` / `--approve-all` for CI. Approvals are recorded in history.
+- **`vlm-diff trends`**: aggregates `history.jsonl` (previously write-only) into run counts, severity distribution, per-page change frequency, and **flaky-page detection** (pages flipping between changed/unchanged ≥2× — the baselines to distrust).
+
+### Fixes folded in
+
+- `check` now persists current captures + a compact last-check summary under `.vlm-diff/current/` (the input `review` works from).
+- README/paper/QUICKSTART synced; `docs/publish.md` gains the MCP-registry publishing note.
+
+Tests: 198 → 212.
+
 ## [0.5.2] — 2026-09-08
 
 ### Distribution (the last mile)

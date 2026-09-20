@@ -18,6 +18,8 @@ export interface DomNode {
     boxShadow: string;
     border: string;
   };
+  /** whitelisted HTML attributes (src, href, alt, aria-label, …); absent in pre-0.6 snapshots */
+  attrs?: Record<string, string>;
 }
 
 export interface RectDelta {
@@ -92,6 +94,26 @@ function compareNodes(b: DomNode, a: DomNode): { changedFields: string[]; values
       changedFields.push(f);
       values[f] = { before: b.style[f], after: a.style[f] };
     }
+  }
+  // attribute changes (v0.6): src swaps, link targets, alt text, aria state.
+  // Old snapshots lack attrs — treat as empty so they still diff cleanly.
+  const bAttrs = b.attrs ?? {};
+  const aAttrs = a.attrs ?? {};
+  for (const name of new Set([...Object.keys(bAttrs), ...Object.keys(aAttrs)])) {
+    const bv = bAttrs[name] ?? "";
+    const av = aAttrs[name] ?? "";
+    if (bv !== av) {
+      const field = `attr:${name}`;
+      changedFields.push(field);
+      values[field] = { before: bv, after: av };
+    }
+  }
+  // a11y context: a color change needs the *effective* background even when
+  // only one side changed — record both color and backgroundColor on both
+  // sides (before==after for the unchanged one) without marking them changed.
+  if (changedFields.includes("color") || changedFields.includes("backgroundColor")) {
+    if (!values.color) values.color = { before: b.style.color, after: a.style.color };
+    if (!values.backgroundColor) values.backgroundColor = { before: b.style.backgroundColor, after: a.style.backgroundColor };
   }
   return { changedFields, values, ...(rectDelta ? { rectDelta } : {}) };
 }

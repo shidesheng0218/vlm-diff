@@ -24,6 +24,19 @@ GitHub has no API for this — the final step is a web checkbox:
 
 Repo discoverability already set via API: topics (visual-regression, dom-diff, vlm, mcp, ai-agents, playwright, screenshot-testing, verifier).
 
+## MCP registry (optional, once)
+
+The official MCP registry (registry.modelcontextprotocol.io) accepts server submissions via its publisher CLI:
+
+```bash
+# one-time: install the publisher, then authenticate (GitHub OAuth in browser)
+npm i -g @modelcontextprotocol/mcp-publisher 2>/dev/null || brew install mcp-publisher
+mcp-publisher login github      # opens a browser for OAuth — manual step
+mcp-publisher publish           # publishes the server.json in this repo
+```
+
+(The `server.json` manifest lives at the repo root; if absent, `mcp-publisher init` scaffolds it.) Listing improves discoverability for agent users searching for a visual verifier.
+
 ## Release cadence
 
 - Code changes → bump `version` in package.json → commit → push master.

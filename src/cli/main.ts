@@ -14,6 +14,8 @@ import { createProvider, PRESETS } from "../provider/factory.js";
 import { FileCacheStore } from "../cache/store.js";
 import { cacheDir, findProjectRoot } from "./project.js";
 import { runInit, runBaseline, runCheck, checkExitCode, existingBaselinePages } from "./baseline.js";
+import { loadPendingReview, approvePages, recordReview, reviewInteractive, type ReviewOutcome } from "./review.js";
+import { computeTrends, formatTrends } from "./trends.js";
 
 function usage(): string {
   return `vlm-diff — deterministic-first UI screenshot diffing
@@ -25,6 +27,9 @@ Usage:
   vlm-diff baseline         snapshot every configured page into .vlm-diff/baseline/
                             (overwriting an existing baseline requires --yes)
   vlm-diff check            re-capture pages and diff against the baseline
+  vlm-diff review           approve changed pages from the last check
+                            (interactive on a TTY; --approve a,b or --approve-all in CI)
+  vlm-diff trends           aggregate .vlm-diff/history.jsonl into a trend summary
 
 diff options:
   --dom-before <file>     JSON DOM snapshot of the before frame (from \`vlm-diff snapshot\`)
@@ -159,6 +164,7 @@ function printHuman(v: DiffVerdict, hadDom: boolean) {
     if (r.description) console.log(`      ${r.description}`);
     const evidence = evidenceLine(r.evidence);
     if (evidence) console.log(`      evidence: ${evidence}`);
+    if (r.a11yImpact) console.log(`      ♿ a11y impact: ${r.a11yImpact}`);
   });
   if (v.inputTokens + v.outputTokens > 0) {
     console.log(`   tokens: ${v.inputTokens} in / ${v.outputTokens} out`);
@@ -287,6 +293,63 @@ async function runCheckCmd(args: ParsedArgs): Promise<number> {
   return code;
 }
 
+async function runReviewCmd(args: ParsedArgs): Promise<number> {
+  const root = findProjectRoot();
+  let pending;
+  try {
+    pending = await loadPendingReview(root);
+  } catch {
+    console.error("nothing to review — run `vlm-diff check` first (it records .vlm-diff/current/last-check.json)");
+    return 2;
+  }
+  if (pending.length === 0) {
+    console.log("nothing to review — the last check was clean");
+    return 0;
+  }
+
+  const approveAll = args.flags.get("approve-all") === true;
+  const approveFlag = args.flags.get("approve");
+  const approveList = typeof approveFlag === "string" ? approveFlag.split(",").map((s) => s.trim()).filter(Boolean) : undefined;
+
+  let outcome: ReviewOutcome;
+  if (approveAll) {
+    outcome = { approved: pending.map((p) => p.name), skipped: [] };
+  } else if (approveList) {
+    const approveSet = new Set(approveList);
+    for (const n of approveList) {
+      if (!pending.some((p) => p.name === n)) console.log(`  note: "${n}" has no pending change`);
+    }
+    outcome = {
+      approved: pending.filter((p) => approveSet.has(p.name)).map((p) => p.name),
+      skipped: pending.filter((p) => !approveSet.has(p.name)).map((p) => p.name),
+    };
+  } else if (process.stdout.isTTY) {
+    outcome = await reviewInteractive(pending);
+  } else {
+    console.error("non-interactive environment: use --approve <pages> or --approve-all");
+    return 2;
+  }
+
+  if (outcome.approved.length > 0) {
+    await approvePages(root, outcome.approved);
+    await recordReview(root, outcome);
+  }
+  console.log(`\napproved: ${outcome.approved.length} page(s)${outcome.approved.length > 0 ? " (baselines updated)" : ""}; skipped: ${outcome.skipped.length}`);
+  return 0;
+}
+
+async function runTrendsCmd(): Promise<number> {
+  const root = findProjectRoot();
+  try {
+    const trends = await computeTrends(root);
+    console.log(formatTrends(trends));
+    return 0;
+  } catch {
+    console.error("no history yet — run `vlm-diff check` or `vlm-diff baseline` first (history lives in .vlm-diff/history.jsonl)");
+    return 2;
+  }
+}
+
 async function main(): Promise<number> {
   loadDotEnv(findProjectRoot()); // load .env from the anchored project root, not cwd
   const [command, ...rest] = process.argv.slice(2);
@@ -301,6 +364,8 @@ async function main(): Promise<number> {
   if (command === "init") return runInitCmd(args);
   if (command === "baseline") return runBaselineCmd(args);
   if (command === "check") return runCheckCmd(args);
+  if (command === "review") return runReviewCmd(args);
+  if (command === "trends") return runTrendsCmd();
   console.error(`unknown command: ${command}\n\n` + usage());
   return 2;
 }

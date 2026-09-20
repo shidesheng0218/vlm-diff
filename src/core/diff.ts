@@ -12,6 +12,7 @@ import { detect, mergeNestedRegions, DEFAULT_PIXEL_ONLY_THRESHOLD } from "../det
 import { describeRegions } from "../describe/describe.js";
 import { classifyDetectedRegions, MAX_REGIONS_TO_CLASSIFY } from "../eval/baselines.js";
 import { pairSeverity, severityOfRegion, type Severity } from "./severity.js";
+import { assessRegionA11y, type A11yNote } from "./a11y.js";
 import type { CandidateRegion } from "../detect/regions.js";
 import type { ChangeKind } from "../classify/vlm-classify.js";
 import type { Provider } from "../provider/types.js";
@@ -56,6 +57,8 @@ export interface RegionVerdict {
   rootCause?: boolean;
   /** deterministic severity: breaking / moderate / cosmetic */
   severity?: Severity;
+  /** accessibility impact found by deterministic analysis (contrast / alt / aria) */
+  a11yImpact?: string;
   /** the evidence the description was derived from */
   evidence?: RegionEvidence;
   inputTokens: number;
@@ -129,6 +132,17 @@ export async function diffPair(
     const region = sorted[i];
     const d = descriptions[i];
     if (d.route === "deterministic") {
+      // deterministic a11y signal (contrast drop, alt/aria removal) can lift
+      // a cosmetic change to moderate — computed from DOM values, zero tokens
+      const a11yNote: A11yNote | undefined = region.domChangedFields
+        ? assessRegionA11y(region.domChangedFields, region.domValues ?? {})
+        : undefined;
+      let severity = severityOfRegion({
+        changeType: d.changeType, w: region.w, h: region.h,
+        rectDelta: region.rectDelta, values: region.domValues,
+      });
+      if (a11yNote && severity === "cosmetic") severity = "moderate";
+
       verdicts.push({
         x: region.x, y: region.y, w: region.w, h: region.h,
         source: region.source,
@@ -137,10 +151,8 @@ export async function diffPair(
         description: d.description,
         confidence: d.confidence,
         rootCause: d.rootCause,
-        severity: severityOfRegion({
-          changeType: d.changeType, w: region.w, h: region.h,
-          rectDelta: region.rectDelta, values: region.domValues,
-        }),
+        severity,
+        a11yImpact: a11yNote?.detail,
         evidence: {
           domChangedFields: region.domChangedFields,
           domValues: region.domValues,

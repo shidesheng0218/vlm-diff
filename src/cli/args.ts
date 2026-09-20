@@ -11,7 +11,7 @@ export interface ParsedArgs {
 // `before.png`, silently producing "missing positional" errors).
 const VALUE_FLAGS = new Set([
   "dom-before", "dom-after", "provider", "model", "threshold", "max-regions",
-  "report", "out-dom", "out-png", "width", "height", "wait-ms",
+  "report", "out-dom", "out-png", "width", "height", "wait-ms", "approve",
 ]);
 
 export function parseArgs(argv: string[]): ParsedArgs {

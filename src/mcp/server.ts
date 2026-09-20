@@ -45,6 +45,7 @@ function formatVerdict(verdict: DiffVerdict): string {
     } else if (r.evidence?.escalationReason) {
       lines.push(`   evidence: ${r.evidence.escalationReason}`);
     }
+    if (r.a11yImpact) lines.push(`   a11y impact: ${r.a11yImpact}`);
   });
   if (verdict.pendingEscalations > 0) {
     lines.push(`note: ${verdict.pendingEscalations} region(s) need a VLM — set an API key for the server to resolve them`);

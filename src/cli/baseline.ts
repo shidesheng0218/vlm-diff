@@ -176,6 +176,49 @@ export async function runCheck(
       });
     }
   }
+  // persist the current captures + a compact summary so `vlm-diff review`
+  // can approve pages later without re-capturing
+  const currentDir = projectFile(root, "current");
+  await mkdir(currentDir, { recursive: true });
+  const { rm } = await import("node:fs/promises");
+  const capturedNames = new Set(results.filter((r) => r.verdict?.changed).map((r) => r.name));
+  for (const c of captured) {
+    const pngPath = path.join(currentDir, `${c.name}.png`);
+    const domPath = path.join(currentDir, `${c.name}.dom.json`);
+    if (capturedNames.has(c.name)) {
+      await writeFile(pngPath, c.png);
+      await writeFile(domPath, c.dom);
+    } else {
+      await rm(pngPath, { force: true });
+      await rm(domPath, { force: true });
+    }
+  }
+  await writeFile(
+    path.join(currentDir, "last-check.json"),
+    JSON.stringify(
+      {
+        at: new Date().toISOString(),
+        pages: results.map((r) => ({
+          name: r.name,
+          url: r.url,
+          changed: r.verdict?.changed ?? null,
+          changeType: r.verdict?.changeType ?? null,
+          severity: r.verdict?.severity ?? null,
+          summary: r.verdict?.summary ?? null,
+          regions: r.verdict?.regions.length ?? 0,
+          evidence: r.verdict?.regions
+            .map((x) => x.evidence?.domChangedFields?.join(","))
+            .filter(Boolean)
+            .join("; ") || null,
+          a11yImpact: r.verdict?.regions.map((x) => x.a11yImpact).filter(Boolean).join("; ") || null,
+          ...(r.error ? { error: r.error } : {}),
+        })),
+      },
+      null,
+      2,
+    ),
+  );
+
   await appendHistory(root, {
     action: "check",
     exitCode: checkExitCode(results),

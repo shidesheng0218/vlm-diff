@@ -95,8 +95,11 @@ test("diffDom: style change carries before/after values", () => {
   const a = [node({})];
   const b = [node({ style: { ...node().style, backgroundColor: "rgb(220,38,38)" } })];
   const changes = diffDom(a, b);
+  // v0.6: color changes carry the other side's color context (for the a11y
+  // contrast assessor); before==after marks it as context, not a change
   assert.deepEqual(changes[0].values, {
     backgroundColor: { before: "rgb(255,255,255)", after: "rgb(220,38,38)" },
+    color: { before: "rgb(0,0,0)", after: "rgb(0,0,0)" },
   });
 });
 

@@ -68,6 +68,7 @@ export function generateVisualReport(input: VisualReportInput): string {
               : "";
           return text ? `<div class="meta evidence">${esc(text)}</div>` : "";
         })()}
+        ${r.a11yImpact ? `<div class="meta a11y">♿ a11y impact: ${esc(r.a11yImpact)}</div>` : ""}
         <div class="meta">(${r.x},${r.y}) ${r.w}×${r.h} · ${r.source}${r.confidence !== undefined ? ` · conf ${r.confidence.toFixed(2)}` : ""}${r.inputTokens + r.outputTokens > 0 ? ` · ${r.inputTokens}+${r.outputTokens} tok` : ""}</div>
       </div>`;
     })
@@ -109,6 +110,7 @@ export function generateVisualReport(input: VisualReportInput): string {
   .desc { font-size: 13px; margin: 2px 0; }
   .meta { font-size: 11px; color: #888; }
   .meta.evidence { color: #6d28d9; font-family: ui-monospace, monospace; }
+  .meta.a11y { color: #b45309; font-weight: 600; }
   .note { background: #fffbeb; border: 1px solid #fde68a; color: #92400e; padding: 10px 14px; border-radius: 10px; margin-bottom: 16px; font-size: 13px; }
   footer { color: #999; font-size: 11px; margin-top: 24px; }
 </style>

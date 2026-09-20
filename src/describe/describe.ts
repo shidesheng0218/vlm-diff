@@ -160,6 +160,43 @@ function describeOne(region: CandidateRegion, rootCausePresent: boolean): Region
     };
   }
 
+  // ── attributes (v0.6: src/href/alt/aria/…) ──
+  const attrFields = fields.filter((f) => f.startsWith("attr:"));
+  if (attrFields.length > 0) {
+    const parts: string[] = [];
+    for (const f of attrFields) {
+      const name = f.slice(5);
+      const v = values[f];
+      if (!v) continue;
+      const cut = (s: string) => (s.length > 60 ? s.slice(0, 57) + "…" : s);
+      const removedOnly = v.after === "" && v.before !== "";
+      const addedOnly = v.before === "" && v.after !== "";
+      if (name === "src") parts.push(removedOnly ? "image source removed" : `image source changed from "${cut(v.before)}" to "${cut(v.after)}"`);
+      else if (name === "href") parts.push(removedOnly ? "link target removed" : `link target changed from "${cut(v.before)}" to "${cut(v.after)}"`);
+      else if (name === "alt") parts.push(removedOnly ? "alt text removed" : addedOnly ? `alt text added ("${cut(v.after)}")` : `alt text changed from "${cut(v.before)}" to "${cut(v.after)}"`);
+      else if (name === "title") parts.push(removedOnly ? "title attribute removed" : `title changed from "${cut(v.before)}" to "${cut(v.after)}"`);
+      else if (name === "placeholder") parts.push(removedOnly ? "placeholder removed" : `placeholder changed from "${cut(v.before)}" to "${cut(v.after)}"`);
+      else if (name === "role") parts.push(removedOnly ? "role attribute removed" : `role changed from "${cut(v.before)}" to "${cut(v.after)}"`);
+      else if (name === "aria-label") parts.push(removedOnly ? "aria-label removed" : addedOnly ? `aria-label added ("${cut(v.after)}")` : `aria-label changed from "${cut(v.before)}" to "${cut(v.after)}"`);
+      else if (name === "aria-hidden") parts.push(`aria-hidden toggled from "${v.before}" to "${v.after}"`);
+      else if (name === "disabled") parts.push(v.after !== "" ? "element became disabled" : "element became enabled");
+      else parts.push(`attribute ${name} changed from "${cut(v.before)}" to "${cut(v.after)}"`);
+    }
+    if (parts.length > 0) {
+      // text-like attributes (alt/placeholder/title) read as text changes;
+      // structural ones (src/href/role/aria-*) are typed "other"
+      const textLike = new Set(["alt", "title", "placeholder", "aria-label"]);
+      const kind: ChangeKind = attrFields.every((f) => textLike.has(f.slice(5))) ? "text-change" : "other";
+      return {
+        route: "deterministic",
+        rootCause,
+        changeType: kind,
+        description: `Element${label} ${parts.join("; ")}`,
+        confidence: 1,
+      };
+    }
+  }
+
   // ── colors ──
   const colorParts: string[] = [];
   if (fields.includes("backgroundColor") && values.backgroundColor) {

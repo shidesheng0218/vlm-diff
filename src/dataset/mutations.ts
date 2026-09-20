@@ -503,6 +503,28 @@ export const V02_MUTATIONS: TargetedMutation[] = [
     },
   },
   {
+    id: "contrast-degrade",
+    kind: "color-change",
+    magnitude: "small",
+    targets: { "card-list.html": "#card-1 .btn", "navbar.html": "#cta", "modal.html": "#btn-confirm", "table.html": "#new-deploy", "form.html": ".submit" },
+    description: "text color washed out against its background (drops below WCAG AA contrast)",
+    // targets buttons (which own both color and backgroundColor) so the a11y
+    // assessor can compute contrast from the recorded values
+    apply: (sel) => {
+      document.querySelectorAll(sel!).forEach((el) => { (el as HTMLElement).style.color = "#93c5fd"; });
+    },
+  },
+  {
+    id: "alt-remove",
+    kind: "text-change",
+    magnitude: "small",
+    targets: { "media.html": "#avatar" },
+    description: "alt attribute removed from the image (accessibility regression, zero pixel change)",
+    apply: (sel) => {
+      document.querySelectorAll(sel!).forEach((el) => { el.removeAttribute("alt"); });
+    },
+  },
+  {
     id: "none-d",
     kind: "none",
     magnitude: "small",

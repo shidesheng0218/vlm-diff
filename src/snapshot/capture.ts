@@ -23,12 +23,19 @@ const SNAPSHOT_EXPRESSION = `(() => {
     return parts.join(">");
   }
 
+  const ATTR_WHITELIST = ["src", "href", "alt", "title", "role", "aria-label", "aria-hidden", "disabled", "placeholder"];
+
   const root = document.body;
   root.querySelectorAll("*").forEach((el) => {
     const rect = el.getBoundingClientRect();
     const cs = getComputedStyle(el);
     // SVG elements expose className as an SVGAnimatedString, not a string
     const cn = el.className;
+    // presence-based: alt="" (decorative) differs from a missing alt
+    const attrs = {};
+    for (const name of ATTR_WHITELIST) {
+      if (el.hasAttribute && el.hasAttribute(name)) attrs[name] = el.getAttribute(name) || "";
+    }
     nodes.push({
       path: pathFor(el, root),
       tag: el.tagName,
@@ -55,6 +62,7 @@ const SNAPSHOT_EXPRESSION = `(() => {
         boxShadow: cs.boxShadow,
         border: cs.border,
       },
+      attrs,
     });
   });
   return JSON.stringify(nodes);

@@ -8,6 +8,8 @@
 
 Born as a research prototype demonstrating that **deterministic DOM diffing + perceptual pixel diffing → VLM classification** significantly outperforms naive "feed-two-screenshots-to-VLM" approaches.
 
+**v0.6 (2026-09):** moat-deepening — snapshots now capture **attributes** (image-src swaps and link-target changes are deterministic, zero tokens, with evidence), and a **deterministic accessibility layer** flags WCAG contrast drops and alt/aria removals (cosmetic a11y hits escalate to moderate). Plus the Percy-style loop, CLI-native: **`vlm-diff review`** (approve changed pages, updating their baselines) and **`vlm-diff trends`** (history aggregation + flaky-page detection).
+
 **v0.5 (2026-09):** agent verifier — MCP tools now return **annotated frames as image blocks** plus typed `structuredContent` (migrated to `registerTool`), `check` gains a CI contract (`--json` + per-page HTML reports), a composite **GitHub Action** ships in the repo root, and [agent recipes](docs/agent-recipes.md) cover Claude Code / Cursor / ZCode.
 
 **v0.4 (2026-09):** trust & cost — every region carries its DOM **evidence**, baseline overwrites require `--yes`, every VLM call is logged to a per-feature **cost log** with an optional budget gate and model routing, API calls get timeouts and output caps, and a "Data handling & privacy" section states exactly what leaves your machine (cropped regions only).
@@ -322,7 +324,10 @@ vlm-diff init http://localhost:3000/   # .vlm-diff/config.json (pages to watch)
 vlm-diff baseline                       # golden snapshots → .vlm-diff/baseline/
 # …later, after changes…
 vlm-diff check                          # diff every page vs baseline, CI exit codes
-# if the changes are intentional, refresh the golden state (explicitly confirmed):
+# if the changes are intentional, review and approve them (Percy-style, per page):
+vlm-diff review                         # interactive; or --approve-all in CI
+vlm-diff trends                         # how the project changes over time; flaky-page detection
+# or refresh everything explicitly (confirmation required):
 vlm-diff baseline --yes                 # overwrites baselines; run history in .vlm-diff/history.jsonl
 ```
 
