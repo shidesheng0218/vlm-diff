@@ -290,6 +290,23 @@ async function runCheckCmd(args: ParsedArgs): Promise<number> {
   });
   const code = checkExitCode(results);
 
+  // --format junit: emit JUnit XML so any CI that reads test reports ingests
+  // a check run without a custom parser (changed = failure, error = error).
+  const format = args.flags.get("format");
+  if (format === "junit") {
+    const { toJUnitXml } = await import("../report/check-index.js");
+    const xml = toJUnitXml(results);
+    const out = args.flags.get("out");
+    if (typeof out === "string") {
+      const { writeFile } = await import("node:fs/promises");
+      await writeFile(out, xml);
+      console.error(`junit report written to ${out}`);
+    } else {
+      console.log(xml);
+    }
+    return code;
+  }
+
   if (json) {
     // CI/Action contract: one JSON line, summary per page + exit code
     console.log(JSON.stringify({

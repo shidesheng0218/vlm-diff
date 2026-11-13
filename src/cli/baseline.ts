@@ -245,6 +245,15 @@ export async function runCheck(
       });
     }
   }
+  // write the index page after all per-page reports, so a report directory is
+  // self-describing (a PR comment / artifact links to index.html)
+  if (opts.reportDir) {
+    const { generateCheckIndex } = await import("../report/check-index.js");
+    await writeFile(
+      path.join(opts.reportDir, "index.html"),
+      generateCheckIndex(results, { generatedAt: new Date().toISOString() }),
+    );
+  }
   // persist the current captures + a compact summary so `vlm-diff review`
   // can approve pages later without re-capturing
   const currentDir = projectFile(root, "current");

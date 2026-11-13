@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Check index page + JUnit output
+
+Multi-page `check` previously wrote one HTML report per changed page with no landing point — a PR comment or CI artifact had to guess filenames. Two additions close the loop:
+
+- **`index.html`** — every `check --report <dir>` now also writes a self-contained summary page: per-page severity badge, change type, one-line summary, and a link into each page's annotated report. Pure function (`src/report/check-index.ts`), no new dependencies.
+- **`vlm-diff check --format junit [--out file.xml]`** — the same results as JUnit XML (changed page = failure, capture error = error), so GitLab/Jenkins/CircleCI ingest a check run with their built-in test-report UI instead of a custom parser. SARIF was considered and deferred: GitHub code scanning isn't available on free private repos, which is where the target users are.
+
+Verified end-to-end on a real project: `init → baseline → change a button color → check --report` writes both `demo.html` (annotated) and `index.html` (summary), and `--format junit` emits a valid testsuite.
+
 ### Media attachment: pixel regions inherit their host element's context
 
 A canvas repaint scatters 6–10 pixel fragments, and each bare fragment crop has no reference frame — the known failure mode where the VLM can't tell a color change from a shift from a new element. `src/detect/media-attach.ts` fixes both:
