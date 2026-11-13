@@ -48,13 +48,14 @@ async function exists(p: string): Promise<boolean> {
 }
 
 function applyMutationsHtml(html: string, scenario: Scenario): string {
-  // Apply the scenario's mutations by editing the saved source. We do simple,
-  // robust string/DOM surgery — this is for a bakeoff, not a general engine.
-  // We inject a <script> that runs the mutations so the "after" page is a real
-  // document that renders the change (keeps it reproducible + debuggable).
+  // Apply the scenario's mutations by editing the saved source. We inject a
+  // <script> that runs the mutations, then removes itself so the script tag
+  // itself doesn't show up in the DOM diff as a spurious "element added".
+  // The self-removal is deferred with setTimeout(0) so all mutations complete
+  // before the tag is pulled out of the DOM.
   if (!scenario.mutations || scenario.mutations.length === 0) return "";
   const ops = JSON.stringify(scenario.mutations);
-  const injector = `\n<script>\n(function(){\n  const ops = ${ops};\n  for (const m of ops) {\n    document.querySelectorAll(m.selector).forEach(function(el){\n      if (m.kind === "set-style") el.style.setProperty(m.prop, m.value);\n      else if (m.kind === "set-text") el.textContent = m.value;\n      else if (m.kind === "set-attr") el.setAttribute(m.prop, m.value);\n      else if (m.kind === "remove") el.remove();\n      else if (m.kind === "append-html") el.insertAdjacentHTML("beforeend", m.value);\n    });\n  }\n})();\n</script>\n`;
+  const injector = `\n<script id="__bakeoff_mutator">\nwindow.addEventListener("load", function(){\n  const ops = ${ops};\n  for (const m of ops) {\n    document.querySelectorAll(m.selector).forEach(function(el){\n      if (m.kind === "set-style") el.style.setProperty(m.prop, m.value);\n      else if (m.kind === "set-text") el.textContent = m.value;\n      else if (m.kind === "set-attr") el.setAttribute(m.prop, m.value);\n      else if (m.kind === "remove") el.remove();\n      else if (m.kind === "append-html") el.insertAdjacentHTML("beforeend", m.value);\n    });\n  }\n  setTimeout(function(){ document.getElementById("__bakeoff_mutator")?.remove(); }, 0);\n});\n</script>\n`;
   return html.replace(/<\/body>/i, injector + "</body>");
 }
 
