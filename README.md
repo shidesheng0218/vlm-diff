@@ -334,7 +334,18 @@ if (verdict.changed) console.log(verdict.severity, verdict.summary);
 claude mcp add vlm-diff -- vlm-diff-mcp
 ```
 
-Two tools over stdio: `snapshot_url` (capture a URL's DOM snapshot + screenshot) and `diff_screenshots` (the full tiered diff). Tool results include typed `structuredContent` and the **annotated after frame as an image block** — the agent literally sees the numbered, severity-colored regions. Integration recipes for Claude Code / Cursor / ZCode: [docs/agent-recipes.md](docs/agent-recipes.md). `npm run mcp:smoke` walks the full handshake offline.
+Six tools over stdio:
+
+| Tool | What it does |
+|---|---|
+| `snapshot_url` | capture a URL's DOM snapshot + screenshot |
+| `diff_screenshots` | the full tiered diff (typed verdict + annotated image block) |
+| `baseline_seed` | capture current pages as the golden baseline |
+| `baseline_check` | diff pages against the baseline (`pages: [...]` to check only what you changed) |
+| `audit_url` | zero-baseline layout + a11y audit (no baseline, no key needed) |
+| `why_url` | CSS cause attribution — which rule wins, what to edit |
+
+`baseline_check` fails soft: no baseline yet → it tells the agent to call `baseline_seed` first, so the loop closes itself. Integration recipes for Claude Code / Cursor / ZCode: [docs/agent-recipes.md](docs/agent-recipes.md). `npm run mcp:smoke` walks the full handshake offline.
 
 ### GitHub Action (gate PRs on visual severity)
 

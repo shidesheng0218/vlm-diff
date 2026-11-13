@@ -23,6 +23,10 @@ import { createProvider, PRESETS } from "../provider/factory.js";
 import { FileCacheStore } from "../cache/store.js";
 import { loadDotEnv } from "../cli/env.js";
 import { annotatePng } from "../report/overlay-png.js";
+import { existingBaselinePages, runBaseline, runCheck } from "../cli/baseline.js";
+import { runAudit } from "../cli/audit.js";
+import { runWhy } from "../cli/why.js";
+import type { ParsedArgs } from "../cli/args.js";
 
 function formatVerdict(verdict: DiffVerdict): string {
   const lines: string[] = [];
@@ -186,6 +190,208 @@ async function main() {
       } finally {
         await browser.close();
       }
+    },
+  );
+
+  // ── baseline_check: diff configured pages against the stored baseline ──────
+  // The agent-facing "did my change break this page" call. Fails soft with a
+  // next-step hint when no baseline exists yet (see baseline_seed).
+  server.registerTool(
+    "baseline_check",
+    {
+      title: "Diff pages against the stored baseline",
+      description:
+        "Re-capture the configured pages and diff each against its baseline. " +
+        "Use `pages` to check only the page(s) you just changed. " +
+        "If no baseline exists yet, call baseline_seed first.",
+      inputSchema: {
+        root: z.string().optional().describe("project root containing .vlm-diff/ (default: cwd)"),
+        pages: z.array(z.string()).optional().describe("only check these page names (default: all)"),
+        no_vlm: z.boolean().optional().describe("skip VLM escalation (default false)"),
+      },
+    },
+    async ({ root, pages, no_vlm }) => {
+      const projectRoot = root ?? process.cwd();
+      const existing = await existingBaselinePages(projectRoot);
+      if (existing.length === 0) {
+        return {
+          content: [{
+            type: "text",
+            text: "No baseline found. Call baseline_seed first to capture the current state as the golden reference, then re-run baseline_check.",
+          }],
+        };
+      }
+
+      const results = await runCheck(projectRoot, {
+        provider: no_vlm ? undefined : tryProvider(),
+        noVlm: no_vlm,
+      });
+
+      const filtered = pages?.length
+        ? results.filter((r) => pages.includes(r.name) || pages.some((p) => r.name.startsWith(`${p}@`)))
+        : results;
+
+      const lines: string[] = [`baseline check: ${filtered.length} page(s)`];
+      for (const r of filtered) {
+        if (r.error) {
+          lines.push(`  ✗ ${r.name}: error — ${r.error}`);
+        } else if (r.verdict) {
+          const v = r.verdict;
+          const mark = v.changed ? "⚠️ " : "✓ ";
+          lines.push(
+            `  ${mark}${r.name}: ${v.changed ? `CHANGED (${v.changeType ?? "?"}${v.severity ? `, ${v.severity}` : ""})` : "unchanged"}` +
+              (v.summary ? ` — ${v.summary}` : ""),
+          );
+        }
+      }
+      const changed = filtered.filter((r) => r.verdict?.changed).length;
+      lines.push(`\n${changed} of ${filtered.length} page(s) changed.`);
+      return {
+        content: [{ type: "text", text: lines.join("\n") }],
+        structuredContent: {
+          pages: filtered.map((r) => ({
+            name: r.name, url: r.url, changed: r.verdict?.changed ?? null,
+            changeType: r.verdict?.changeType ?? null, severity: r.verdict?.severity ?? null,
+            summary: r.verdict?.summary ?? null, error: r.error ?? null,
+          })),
+        },
+      };
+    },
+  );
+
+  // ── baseline_seed: capture the current state as the golden baseline ────────
+  server.registerTool(
+    "baseline_seed",
+    {
+      title: "Capture current pages as the golden baseline",
+      description:
+        "Snapshot every configured page into .vlm-diff/baseline/. " +
+        "Run once to establish the golden reference; baseline_check compares against it. " +
+        "Overwrites an existing baseline only when force=true.",
+      inputSchema: {
+        root: z.string().optional().describe("project root containing .vlm-diff/ (default: cwd)"),
+        force: z.boolean().optional().describe("overwrite an existing baseline (default false)"),
+      },
+    },
+    async ({ root, force }) => {
+      const projectRoot = root ?? process.cwd();
+      const existing = await existingBaselinePages(projectRoot);
+      if (existing.length > 0 && !force) {
+        return {
+          content: [{
+            type: "text",
+            text: `Baseline already exists (${existing.length} page(s): ${existing.join(", ")}). Call again with force=true to overwrite.`,
+          }],
+        };
+      }
+      const { pages, skipped } = await runBaseline(projectRoot, { force: force ?? false });
+      return {
+        content: [{
+          type: "text",
+          text: skipped
+            ? "Baseline skipped (already exists; pass force=true to overwrite)."
+            : `Baseline seeded: ${pages.length} page(s) captured (${pages.map((p) => p.name).join(", ")}). Run baseline_check after making changes.`,
+        }],
+        structuredContent: { seeded: !skipped, pages: pages.map((p) => p.name) },
+      };
+    },
+  );
+
+  // ── audit_url: zero-baseline layout + a11y check on a single page ──────────
+  server.registerTool(
+    "audit_url",
+    {
+      title: "Zero-baseline layout + accessibility audit",
+      description:
+        "Check a URL for layout defects (clipped content, collapsed elements, " +
+        "unreachable/undersized controls) and accessibility issues — no baseline, " +
+        "no prior run, no API key needed. Returns findings with severity.",
+      inputSchema: {
+        url: z.string().describe("http(s):// URL or local file path"),
+        width: z.number().optional().describe("viewport width (default 1280)"),
+        height: z.number().optional().describe("viewport height (default 800)"),
+      },
+    },
+    async ({ url, width, height }) => {
+      // runAudit is a CLI entry (ParsedArgs → console.log + exit code); build
+      // the args shape it expects and capture stdout via a temp swap.
+      const args: ParsedArgs = {
+        positional: [],
+        flags: new Map<string, string | boolean>([
+          ["url", url],
+          ["json", true],
+          ...(width ? [["width", String(width)] as const] : []),
+          ...(height ? [["height", String(height)] as const] : []),
+        ]),
+      };
+      const logs: string[] = [];
+      const orig = console.log;
+      console.log = (...a: unknown[]) => logs.push(a.map(String).join(" "));
+      try {
+        await runAudit(args);
+      } finally {
+        console.log = orig;
+      }
+      const parsed = logs.length ? JSON.parse(logs[logs.length - 1]) : null;
+      const findings = parsed?.findings ?? [];
+      const lines = [
+        findings.length === 0
+          ? `✅ audit clean — ${url}`
+          : `⚠️ ${findings.length} finding(s) in ${url}`,
+        ...findings.slice(0, 12).map((f: any) => `  ${f.severity}  ${f.selector}  ${f.message}`),
+      ];
+      if (parsed?.diagnostics) {
+        const d = parsed.diagnostics.summary;
+        if (d.pageErrors + d.consoleErrors + d.failedRequests > 0) {
+          lines.push(`diagnostics: ${d.pageErrors} exceptions, ${d.consoleErrors} console errors, ${d.failedRequests} failed requests`);
+        }
+      }
+      return {
+        content: [{ type: "text", text: lines.join("\n") }],
+        structuredContent: parsed,
+      };
+    },
+  );
+
+  // ── why_url: CSS cause attribution for a changed property ──────────────────
+  server.registerTool(
+    "why_url",
+    {
+      title: "Explain which CSS rule wins for an element property",
+      description:
+        "For a live page + element + CSS property, report which rule wins, its " +
+        "specificity, and the losing contenders — 'diff says what changed, why says " +
+        "which rule to edit'. Zero tokens, runs against the live page.",
+      inputSchema: {
+        url: z.string().describe("http(s):// URL or local file path"),
+        selector: z.string().describe("CSS selector of the element"),
+        property: z.string().describe("CSS property, kebab-case (e.g. background-color)"),
+      },
+    },
+    async ({ url, selector, property }) => {
+      const args: ParsedArgs = {
+        positional: [url],
+        flags: new Map<string, string | boolean>([["selector", selector], ["property", property], ["json", true]]),
+      };
+      const logs: string[] = [];
+      const orig = console.log;
+      console.log = (...a: unknown[]) => logs.push(a.map(String).join(" "));
+      try {
+        await runWhy(args);
+      } finally {
+        console.log = orig;
+      }
+      const parsed = logs.length ? JSON.parse(logs[logs.length - 1]) : null;
+      const c = parsed?.cause;
+      const text = c
+        ? `${selector} · ${property} = ${parsed.computedValue}\nwinning rule: ${c.winning} ${c.specificity} → ${c.declaration}` +
+          (c.flip ? `\nflip: ${c.flip}` : "") +
+          (c.contenders?.length ? `\noverrode: ${c.contenders.map((x: any) => `${x.selector} (${x.declaration})`).join(", ")}` : "")
+        : `${selector} · ${property}: no matching rule found (inline style or UA default)`;
+      return {
+        content: [{ type: "text", text }],
+        structuredContent: parsed,
+      };
     },
   );
 

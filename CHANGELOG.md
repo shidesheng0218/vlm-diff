@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+### MCP tool surface: 2 → 6 tools
+
+The MCP server now exposes the full agent loop, not just capture+diff:
+
+- **`baseline_seed`** — capture current pages as the golden baseline (fail-soft if one exists unless `force=true`)
+- **`baseline_check`** — diff pages against the baseline, with `pages: [...]` filtering so an agent checks only what it just changed. Fails soft with a "call baseline_seed first" hint when no baseline exists, so the loop closes itself.
+- **`audit_url`** — the zero-baseline layout + a11y audit over MCP (no baseline, no key)
+- **`why_url`** — CSS cause attribution over MCP ("which rule wins, what to edit")
+
+All four wrap the existing CLI implementations (`runBaseline`/`runCheck`/`runAudit`/`runWhy`); the two pre-existing tools (`snapshot_url`, `diff_screenshots`) are unchanged. Verified end-to-end over stdio: tool registration, the no-baseline fail-soft path, `audit_url` on a real page, and `why_url`'s override chain.
+
 ### Citation accuracy + WUICC-bench positioning
 
 A literature check (the three cited arXiv papers fetched and read) found the project was *under*-claiming its relationship to the closest prior work and *over*-claiming specifics we couldn't verify from the sources:
