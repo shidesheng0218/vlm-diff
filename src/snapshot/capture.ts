@@ -83,9 +83,11 @@ const SNAPSHOT_EXPRESSION = `(() => {
       // input type lives OUTSIDE \`attrs\` on purpose: putting it in the attribute
       // whitelist would make every input look changed against pre-0.10 baselines.
       inputType: el.tagName === "INPUT" ? (el.type || "") : undefined,
-      // label's htmlFor — capture-only (never diffed), lets the form-label-unlinked
-      // invariant verify a label points at a real control.
+      // label's htmlFor + tabindex — capture-only (never diffed), let the
+      // invariants / a11y-regression rules reason about keyboard & label state
+      // without turning every old baseline into a phantom attribute change.
       labelFor: el.tagName === "LABEL" ? (el.getAttribute(LABEL_FOR) || undefined) : undefined,
+      tabIndex: el.getAttribute && el.hasAttribute("tabindex") ? (el.getAttribute("tabindex") || "") : undefined,
       attrs,
     });
   });

@@ -50,3 +50,41 @@ test("assessRegionA11y: no a11y signal on ordinary changes", () => {
   assert.equal(assessRegionA11y(["fontWeight"], { fontWeight: { before: "700", after: "400" } }), undefined);
   assert.equal(assessRegionA11y([], {}), undefined);
 });
+
+// ── diff-side a11y regression (v0.10) ──
+
+test("assessRegionA11y: aria-hidden turned on fires a note", () => {
+  const note = assessRegionA11y(["attr:aria-hidden"], {
+    "attr:aria-hidden": { before: "false", after: "true" },
+  });
+  assert.equal(note?.kind, "aria-hidden-on");
+  assert.match(note!.detail, /hidden from screen readers/);
+});
+
+test("assessRegionA11y: aria-hidden removed is not a regression", () => {
+  const note = assessRegionA11y(["attr:aria-hidden"], {
+    "attr:aria-hidden": { before: "true", after: "false" },
+  });
+  assert.equal(note, undefined); // becoming visible is good, not flagged
+});
+
+test("assessRegionA11y: element becoming disabled fires a note", () => {
+  const note = assessRegionA11y(["attr:disabled"], {
+    "attr:disabled": { before: "", after: "disabled" },
+  });
+  assert.equal(note?.kind, "disabled-added");
+});
+
+test("assessRegionA11y: element becoming enabled is not flagged", () => {
+  const note = assessRegionA11y(["attr:disabled"], {
+    "attr:disabled": { before: "disabled", after: "" },
+  });
+  assert.equal(note, undefined);
+});
+
+test("assessRegionA11y: an alt text change (not removal) is not flagged", () => {
+  const note = assessRegionA11y(["attr:alt"], {
+    "attr:alt": { before: "old", after: "new" },
+  });
+  assert.equal(note, undefined);
+});

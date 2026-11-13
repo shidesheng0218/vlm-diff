@@ -8,7 +8,7 @@ import { parseColor } from "../describe/color.js";
 import type { FieldChange } from "../detect/dom-diff.js";
 
 export interface A11yNote {
-  kind: "contrast" | "alt-removed" | "aria-label-removed";
+  kind: "contrast" | "alt-removed" | "aria-label-removed" | "aria-hidden-on" | "disabled-added" | "label-lost" | "heading-demoted";
   detail: string;
 }
 
@@ -54,6 +54,19 @@ export function assessRegionA11y(
   const aria = values["attr:aria-label"];
   if (aria && aria.before !== "" && aria.after === "") {
     return { kind: "aria-label-removed", detail: `aria-label removed (was "${aria.before}")` };
+  }
+
+  // aria-hidden turned on — content just became invisible to screen readers.
+  // This is the regression a pixel diff is blind to by construction.
+  const ariaHidden = values["attr:aria-hidden"];
+  if (ariaHidden && ariaHidden.after === "true" && ariaHidden.before !== "true") {
+    return { kind: "aria-hidden-on", detail: "aria-hidden set to true — content is now hidden from screen readers" };
+  }
+
+  // element became disabled — keyboard/screen-reader users lose the control.
+  const disabled = values["attr:disabled"];
+  if (disabled && disabled.after !== "" && disabled.before === "") {
+    return { kind: "disabled-added", detail: "element became disabled (keyboard + screen-reader users lose it)" };
   }
 
   // contrast: only when text color AND background both changed on both sides

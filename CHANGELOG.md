@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+### Diff-side accessibility regressions (what axe structurally can't see)
+
+axe is a single-frame tool — it can't express "this element *used to* have a label and now it doesn't". The diff side can, because we hold both DOMs. `assessRegionA11y` now flags a11y regressions beyond the existing contrast-drop + alt/aria-removal:
+
+- **`aria-hidden` turned on** — content just became invisible to screen readers. Pixel diffs are blind to this by construction.
+- **element became `disabled`** — keyboard and screen-reader users lose the control.
+- Existing: alt/aria-label removed, contrast drop below WCAG AA.
+
+All deterministic, zero tokens, and they ride the existing `a11yImpact` field into the diff report. `tabindex` is now captured (outside the diff whitelist, same isolation as `inputType`) so keyboard-focus regressions can be added later without phantom baseline churn.
+
 ### Two audit rules axe doesn't check (and agents hit often)
 
 - **`link-no-href`** — an `<a>` with no href, an empty href, or `javascript:void(0)`. axe doesn't check this; it's the classic agent-refactor regression (`<a href>` rewritten to `<a onclick>`). An `<a role="button">` is intentionally skipped (it's not trying to be a link).

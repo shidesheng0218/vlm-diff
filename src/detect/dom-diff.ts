@@ -35,6 +35,8 @@ export interface DomNode {
   inputType?: string;
   /** <label> htmlFor, captured outside `attrs` for the same reason; used by form-label-unlinked */
   labelFor?: string;
+  /** tabindex, captured outside `attrs` so the a11y-regression layer can read it without diffing on it */
+  tabIndex?: string;
   /** whitelisted HTML attributes (src, href, alt, aria-label, …); absent in pre-0.6 snapshots */
   attrs?: Record<string, string>;
 }
