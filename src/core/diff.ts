@@ -13,7 +13,9 @@ import { describeRegions } from "../describe/describe.js";
 import { classifyDetectedRegions, MAX_REGIONS_TO_CLASSIFY } from "../eval/baselines.js";
 import { pairSeverity, severityOfRegion, type Severity } from "./severity.js";
 import { assessRegionA11y, type A11yNote } from "./a11y.js";
+import { attachToMedia, mediaHintText } from "../detect/media-attach.js";
 import type { CandidateRegion } from "../detect/regions.js";
+import type { DomNode } from "../detect/dom-diff.js";
 import type { ChangeKind } from "../classify/vlm-classify.js";
 import type { Provider } from "../provider/types.js";
 import type { CacheStore } from "../cache/store.js";
@@ -175,12 +177,42 @@ export async function diffPair(
 
   let pendingEscalations = 0;
   if (escalated.length > 0) {
+    // Media attachment: pixel-only regions that overlap a media element
+    // (canvas/svg/img/video) are replaced by the host element's rect, so the
+    // VLM crop has the element's full context instead of a bare pixel blob,
+    // and fragments of one canvas collapse into a single classification call.
+    // Orphans (no media host) pass through unchanged.
+    const domAfterNodes: DomNode[] = (() => {
+      try { return JSON.parse(domAfterJson ?? "[]"); } catch { return []; }
+    })();
+    const pixelOnly = escalated.filter((r) => r.source === "pixel");
+    const nonPixel = escalated.filter((r) => r.source !== "pixel");
+    const { hosts, orphans } = attachToMedia(pixelOnly, domAfterNodes);
+    const attachedRegions: CandidateRegion[] = [
+      ...nonPixel,
+      ...hosts.map((h) => ({
+        x: h.rect.x, y: h.rect.y, w: h.rect.w, h: h.rect.h,
+        source: "pixel" as const,
+        // carry the media context as the region's hint text
+        domChangedFields: undefined,
+        domId: h.id,
+      })),
+      ...orphans.map((o) => ({ x: o.x, y: o.y, w: o.w, h: o.h, source: "pixel" as const })),
+    ];
+    // media hint text per region, keyed by rect identity for the classify step
+    const mediaHints = new Map<string, string>();
+    for (const h of hosts) {
+      mediaHints.set(`${h.rect.x},${h.rect.y},${h.rect.w},${h.rect.h}`, mediaHintText(h));
+    }
+
     if (options.provider) {
       const classifications = await classifyDetectedRegions(
-        options.provider, options.cache, beforePng, afterPng, escalated, true, maxRegions,
+        options.provider, options.cache, beforePng, afterPng, attachedRegions, true, maxRegions,
       );
       for (const c of classifications) {
-        const srcRegion = escalated.find(
+        const key = `${c.region.x},${c.region.y},${c.region.w},${c.region.h}`;
+        const mediaHint = mediaHints.get(key);
+        const srcRegion = attachedRegions.find(
           (r) => r.x === c.region.x && r.y === c.region.y && r.w === c.region.w && r.h === c.region.h,
         );
         verdicts.push({
@@ -188,14 +220,15 @@ export async function diffPair(
           source: c.source,
           route: "vlm",
           changeType: c.changeType,
-          description: c.description,
+          // prepend the media context so the description explains what the element is
+          description: mediaHint ? `${mediaHint} ${c.description}` : c.description,
           confidence: c.confidence,
           rootCause: true, // pixel-only repaints are their own root cause
           domId: srcRegion?.domId,
           severity: severityOfRegion({ changeType: c.changeType, w: c.region.w, h: c.region.h }),
           evidence: {
             domChangedFields: srcRegion?.domChangedFields,
-            escalationReason: "pixel-only region: no DOM signal",
+            escalationReason: mediaHint ?? "pixel-only region: no DOM signal",
           },
           inputTokens: c.usage.inputTokens,
           outputTokens: c.usage.outputTokens,
@@ -203,13 +236,15 @@ export async function diffPair(
         });
       }
     } else {
-      pendingEscalations = escalated.length;
-      for (const region of escalated) {
+      pendingEscalations = attachedRegions.length;
+      for (const region of attachedRegions) {
+        const key = `${region.x},${region.y},${region.w},${region.h}`;
+        const mediaHint = mediaHints.get(key);
         verdicts.push({
           x: region.x, y: region.y, w: region.w, h: region.h,
           source: region.source,
           route: "vlm",
-          reason: "pixel-only region: no DOM signal",
+          reason: mediaHint ?? "pixel-only region: no DOM signal",
           rootCause: true,
           inputTokens: 0,
           outputTokens: 0,

@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Media attachment: pixel regions inherit their host element's context
+
+A canvas repaint scatters 6–10 pixel fragments, and each bare fragment crop has no reference frame — the known failure mode where the VLM can't tell a color change from a shift from a new element. `src/detect/media-attach.ts` fixes both:
+
+- **Attach**: a pixel-only region that overlaps a media element (`canvas`/`svg`/`img`/`video`) is replaced by the host element's rect, so the VLM crop carries the full element instead of a bare pixel blob. Fragments of one canvas collapse into a single classification call — measured on `media-canvas-repaint-color`: **8 pixel regions → 1 canvas host**.
+- **Context**: the host's id and nearest preceding heading go into the prompt ("the canvas #chart-canvas under the heading 'Weekly builds'"), so the VLM knows *what* it's looking at. Ties between overlapping media elements resolve to the smaller host (a small icon on a big canvas attributes to the icon).
+
+This trades a little "pure determinism" narrative for accuracy: the DOM hint is free evidence handed to the VLM, not a prompt guess. Verified offline (no VLM call) on the real `media-canvas-repaint-color` pair — 8 fragments merged, hint carries the heading.
+
 ### Deterministic capture: `settlePage`
 
 The single biggest source of false positives on real pages is capture timing — fonts still loading, lazy images, CSS animations mid-flight. Every capture point used a bare `goto(load) + waitForTimeout(100)`, which races all of them.
