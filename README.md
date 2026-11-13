@@ -350,7 +350,7 @@ Six tools over stdio:
 ### GitHub Action (gate PRs on visual severity)
 
 ```yaml
-- uses: shidesheng0218/vlm-diff@v0.9.0
+- uses: shidesheng0218/vlm-diff@v0.10.0
   with:
     fail-on: breaking        # breaking | any | never
     # provider: dashscope    # optional — only needed for pixel-only escalation
@@ -457,7 +457,7 @@ Paper draft: [paper/vlm-diff.tex](paper/vlm-diff.tex) · writeups: [Dev.to](http
   author={shidesheng},
   year={2026},
   month={October},
-  version={0.9.0},
+  version={0.10.0},
   url={https://github.com/shidesheng0218/vlm-diff},
   note={Deterministic-first UI diffing with tiered VLM escalation: CLI, MCP server, dataset, and evaluation framework}
 }

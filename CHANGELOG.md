@@ -1,6 +1,47 @@
 # Changelog
 
-## [Unreleased]
+## [0.10.0] — 2026-11-13
+
+The "agent-ready" release: the MCP server now exposes the full agent loop, capture is deterministic on real pages, pixel-only changes carry their host element's context, and the collaboration surface is complete enough to hand to a CI. 310 tests, all offline.
+
+### MCP tool surface: 2 → 6 tools
+
+The MCP server now exposes the full agent loop, not just capture+diff. New tools, all wrapping existing CLI implementations (zero API changes):
+
+- **`baseline_seed`** — capture current pages as the golden baseline (fail-soft unless `force=true`)
+- **`baseline_check`** — diff pages against the baseline, with `pages: [...]` filtering so an agent checks only what it just changed. Fails soft with a "call baseline_seed first" hint when no baseline exists, closing the loop.
+- **`audit_url`** — the zero-baseline layout + a11y audit over MCP (no baseline, no key)
+- **`why_url`** — CSS cause attribution over MCP ("which rule wins, what to edit")
+
+Verified end-to-end over stdio: 6/6 tools register, the no-baseline fail-soft path, `audit_url` on a real page, and `why_url`'s override chain.
+
+### Deterministic capture: `settlePage`
+
+The leading source of false positives on real pages is capture timing — fonts still loading, lazy images, CSS animations mid-flight. Every capture point (CLI snapshot, baseline, MCP) now runs `settlePage`: network idle (hard timeout, so a page holding a persistent analytics connection degrades gracefully), `document.fonts.ready`, two animation frames, and a CSS animation/transition freeze. A pathological page can't stall a run.
+
+### Media attachment: pixel regions inherit their host's context
+
+A canvas repaint scatters 6–10 pixel fragments; a bare fragment crop has no reference frame, so the VLM can't tell a color change from a shift from a new element. Pixel-only regions now attach to the media element they overlap (`canvas`/`svg`/`img`/`video`): the crop carries the full element, fragments of one canvas collapse into one call, and the host's id + nearest heading go into the prompt. Measured on a real canvas pair: 8 pixel regions → 1 host.
+
+### Check index page + JUnit output
+
+- `vlm-diff check --report <dir>` now also writes `index.html`: a self-contained summary (severity badge, change type, one-line summary, link into each annotated page).
+- `vlm-diff check --format junit [--out file.xml]` emits JUnit XML (changed = failure, error = error), so GitLab/Jenkins/CircleCI ingest a check run with their built-in test-report UI.
+
+### Two audit rules axe doesn't check
+
+- **`link-no-href`** — an `<a>` with no href / empty href / `javascript:void(0)`. The classic agent-refactor regression (`<a href>` → `<a onclick>`).
+- **`form-label-unlinked`** — a control with no accessible label (no aria-label, no wrapping `<label>`, no `<label for=id>`). The #1 a11y defect on real pages. A control's own text counts as its name.
+
+### Diff-side accessibility regressions (what axe structurally can't see)
+
+axe is single-frame; it can't express "this element *used to* have a label". The diff side holds both DOMs, so it now flags a11y regressions beyond contrast/alt/aria-removal: **`aria-hidden` turned on** (content invisible to screen readers — pixel diffs are blind to this) and **element became `disabled`** (keyboard/screen-reader users lose the control). All zero-token, riding the existing `a11yImpact` field.
+
+### Citation accuracy + WUICC-bench positioning
+
+A literature check (the three cited arXiv papers fetched and read) found the closest prior work was under-claimed and some specifics were unverifiable from the sources. **WUICC-bench (arXiv:2607.01728)** — web-UI change captioning, 11 IDC methods + 2 zero-shot LLMs, all struggle on web UIs — is now foregrounded: none of those methods uses DOM structure, which is precisely the signal we exploit. Unverifiable specifics (exact accuracy figures, "9/10 categories", "6×") were restated as what the abstracts support.
+
+---
 
 ### Diff-side accessibility regressions (what axe structurally can't see)
 
