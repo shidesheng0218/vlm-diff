@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### Two audit rules axe doesn't check (and agents hit often)
+
+- **`link-no-href`** — an `<a>` with no href, an empty href, or `javascript:void(0)`. axe doesn't check this; it's the classic agent-refactor regression (`<a href>` rewritten to `<a onclick>`). An `<a role="button">` is intentionally skipped (it's not trying to be a link).
+- **`form-label-unlinked`** — a form control with no accessible label: no `aria-label`, no wrapping `<label>`, no `<label for=id>` that resolves. The #1 a11y defect on real pages. A control's own text content counts as its name (so `<button>Save</button>` is fine), and checkbox/radio inputs are exempt.
+
+Both are zero-token, zero-baseline, and run inside `vlm-diff audit`. The label rule needed one capture addition — `<label>`'s `for` attribute — captured **outside** the diff whitelist (same isolation pattern as `inputType`) so existing baselines don't report phantom attribute changes.
+
 ### Check index page + JUnit output
 
 Multi-page `check` previously wrote one HTML report per changed page with no landing point — a PR comment or CI artifact had to guess filenames. Two additions close the loop:

@@ -33,6 +33,8 @@ export interface DomNode {
   };
   /** <input> type, captured outside `attrs` so pre-v0.10 baselines don't diff on it */
   inputType?: string;
+  /** <label> htmlFor, captured outside `attrs` for the same reason; used by form-label-unlinked */
+  labelFor?: string;
   /** whitelisted HTML attributes (src, href, alt, aria-label, …); absent in pre-0.6 snapshots */
   attrs?: Record<string, string>;
 }

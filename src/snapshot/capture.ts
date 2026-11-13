@@ -24,6 +24,10 @@ const SNAPSHOT_EXPRESSION = `(() => {
   }
 
   const ATTR_WHITELIST = ["src", "href", "alt", "title", "role", "aria-label", "aria-hidden", "disabled", "placeholder"];
+  // captured for the label-linkage invariant; NOT added to ATTR_WHITELIST so it
+  // never enters the DOM diff (a new diffed field would make every old baseline
+  // report a phantom attribute change). Capture-only, like inputType.
+  const LABEL_FOR = "for";
 
   const root = document.body;
   root.querySelectorAll("*").forEach((el) => {
@@ -79,6 +83,9 @@ const SNAPSHOT_EXPRESSION = `(() => {
       // input type lives OUTSIDE \`attrs\` on purpose: putting it in the attribute
       // whitelist would make every input look changed against pre-0.10 baselines.
       inputType: el.tagName === "INPUT" ? (el.type || "") : undefined,
+      // label's htmlFor — capture-only (never diffed), lets the form-label-unlinked
+      // invariant verify a label points at a real control.
+      labelFor: el.tagName === "LABEL" ? (el.getAttribute(LABEL_FOR) || undefined) : undefined,
       attrs,
     });
   });

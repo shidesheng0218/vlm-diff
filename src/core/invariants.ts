@@ -15,7 +15,9 @@ export type InvariantId =
   | "text-truncated"
   | "content-overflow"
   | "offscreen-interactive"
-  | "small-target";
+  | "small-target"
+  | "link-no-href"
+  | "form-label-unlinked";
 
 export type InvariantSeverity = "breaking" | "moderate" | "cosmetic";
 
@@ -87,6 +89,71 @@ function clippedBy(hidden: string | undefined): boolean {
  */
 export function checkInvariants(nodes: DomNode[], options: InvariantOptions = {}): InvariantFinding[] {
   const findings: InvariantFinding[] = [];
+
+  // ── link-no-href: an <a> with no usable href ──
+  // axe does not check this; it's the classic agent-refactor regression
+  // (<a href> rewritten to <a onclick>, or left as href="javascript:void(0)").
+  for (const node of nodes) {
+    if (node.tag !== "A" || !isVisible(node)) continue;
+    const href = node.attrs?.href;
+    const role = (node.attrs?.role ?? "").toLowerCase();
+    // a link given button semantics is intentionally not a link — skip it
+    if (role === "button") continue;
+    const unusable = href === undefined || href.trim() === "" || href.trim().startsWith("javascript:");
+    if (unusable) {
+      findings.push({
+        id: "link-no-href",
+        severity: "moderate",
+        selector: selectorFor(node),
+        path: node.path,
+        message: href === undefined
+          ? "link has no href — keyboard/screen-reader users can't follow it"
+          : `link href is "${href.trim().slice(0, 40)}" — not a navigable target`,
+        detail: { tag: "a" },
+      });
+    }
+  }
+
+  // ── form-label-unlinked: a control no label points at ──
+  // #1 a11y defect on real pages. A control is labeled if ANY of: aria-label,
+  // aria-labelledby, a wrapping <label>, or a <label for=id> that resolves.
+  const controlIds = new Map<string, DomNode>();
+  for (const node of nodes) {
+    if (isControl(node) && node.id) controlIds.set(node.id, node);
+  }
+  const labelForTargets = new Set<string>();
+  for (const node of nodes) {
+    if (node.tag === "LABEL" && node.labelFor) labelForTargets.add(node.labelFor);
+  }
+  // a label wrapping a control labels it — detect via path prefix
+  const wrappedByLabel = new Set<string>();
+  const labelPaths = nodes.filter((n) => n.tag === "LABEL").map((n) => n.path);
+  for (const node of nodes) {
+    if (isControl(node) && node.id) {
+      if (labelPaths.some((lp) => node.path.startsWith(lp + ">"))) wrappedByLabel.add(node.id);
+    }
+  }
+  for (const node of nodes) {
+    if (!isControl(node) || !isVisible(node)) continue;
+    // skip non-text inputs (checkbox/radio are small targets by design, often icon-labeled)
+    if (node.tag === "INPUT" && !TARGET_INPUT_TYPES.has(inputType(node))) continue;
+    const hasAria = (node.attrs?.["aria-label"] ?? "").trim().length > 0 || (node.attrs?.["aria-labelledby"] ?? "").trim().length > 0;
+    // a button/select's own text content IS its accessible name — only bare
+    // inputs (whose value is user data, not a label) need an external label
+    const hasOwnName = node.tag !== "INPUT" && node.text.trim().length > 0;
+    const wrapped = node.id ? wrappedByLabel.has(node.id) : false;
+    const pointedAt = node.id ? labelForTargets.has(node.id) : false;
+    if (!hasAria && !hasOwnName && !wrapped && !pointedAt) {
+      findings.push({
+        id: "form-label-unlinked",
+        severity: "moderate",
+        selector: selectorFor(node),
+        path: node.path,
+        message: "form control has no accessible label (no aria-label, no wrapping <label>, no <label for=id>)",
+        detail: { tag: node.tag.toLowerCase() },
+      });
+    }
+  }
 
   for (const node of nodes) {
     if (!isVisible(node)) continue;
