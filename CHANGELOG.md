@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+### Deterministic capture: `settlePage`
+
+The single biggest source of false positives on real pages is capture timing — fonts still loading, lazy images, CSS animations mid-flight. Every capture point used a bare `goto(load) + waitForTimeout(100)`, which races all of them.
+
+`src/snapshot/capture.ts` gains `settlePage(page, opts)`, now used by `snapshot`, `baseline`, and the MCP `snapshot_url`:
+
+1. **network idle** (lazy images, content-swapping XHRs), with a hard timeout so a page holding a persistent analytics connection degrades to "captured early" instead of hanging
+2. **`document.fonts.ready`** — late-loading webfonts are a classic text-jitter source
+3. **two consecutive animation frames** — lets any in-progress paint finish
+4. **CSS animation/transition freeze** — an injected `<style>` forces `animation-duration: 0s` and zeroes the caret, so a mid-flight tween doesn't produce a different frame every capture (opt-out via `freezeAnimations: false`)
+
+Each stage has its own timeout; a pathological page can't stall a run. 4 new tests (real headless Chromium) verify the freeze applies, infinite animations + never-idle networks don't hang, `extraWaitMs` is honored, and the freeze is optional.
+
 ### MCP tool surface: 2 → 6 tools
 
 The MCP server now exposes the full agent loop, not just capture+diff:

@@ -134,7 +134,11 @@ async function capturePages(config: VlmDiffConfig): Promise<CapturedPage[]> {
       for (const vp of viewports) {
         const page = await browser.newPage({ viewport: vp });
         await page.goto(target.url, { waitUntil: "load", timeout: 30000 });
-        await page.waitForTimeout(100);
+        // settle: network idle + fonts + animation frames + CSS freeze, so the
+        // baseline isn't captured mid-animation / mid-font-load (a leading
+        // source of false-positive diffs on real pages)
+        const { settlePage } = await import("../snapshot/capture.js");
+        await settlePage(page);
         await applyActions(page, target.actions);
         const png = (await page.screenshot()) as Buffer;
         const dom = await snapshotDom(page);

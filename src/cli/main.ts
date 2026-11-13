@@ -226,7 +226,10 @@ async function runSnapshot(args: ParsedArgs): Promise<number> {
     // attach before navigation so load-time console errors / failed requests are recorded
     const collector = collectDiagnostics(page);
     await page.goto(url, { waitUntil: "load" });
-    await page.waitForTimeout(waitMs);
+    // settle: network idle + fonts + animation frames + CSS freeze (real pages
+    // need more than a bare timeout to be visually stable)
+    const { settlePage } = await import("../snapshot/capture.js");
+    await settlePage(page, { extraWaitMs: waitMs });
     const dom = await snapshotDom(page);
     await writeFile(outDom, dom);
     console.log(`DOM snapshot: ${outDom} (${JSON.parse(dom).length} elements)`);

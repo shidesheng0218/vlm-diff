@@ -172,7 +172,8 @@ async function main() {
       try {
         const page = await browser.newPage({ viewport: { width: width ?? 960, height: height ?? 500 } });
         await page.goto(target, { waitUntil: "load", timeout: 30000 });
-        await page.waitForTimeout(wait_ms ?? 100);
+        const { settlePage } = await import("../snapshot/capture.js");
+        await settlePage(page, { extraWaitMs: wait_ms ?? 0 });
         const dom = await snapshotDom(page);
         const png = await page.screenshot();
         await writeFile(domPath, dom);

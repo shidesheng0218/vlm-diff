@@ -99,6 +99,73 @@ export async function snapshotDom(page: Page): Promise<string> {
   return page.evaluate(SNAPSHOT_EXPRESSION);
 }
 
+// ─── Settle ───────────────────────────────────────────────────────────────
+// The single biggest source of false positives on real pages is capture
+// timing: fonts still loading, lazy images, CSS animations mid-flight. A bare
+// `goto(load) + waitForTimeout(100)` races all of them. settlePage waits for
+// the page to be *visually stable* before snapshotting.
+//
+// Design: every wait has a hard timeout so a pathological page (an ever-open
+// analytics connection, an infinite animation) degrades to "captured early"
+// instead of hanging the run. The timeouts are generous enough that real
+// pages settle well inside them.
+
+export interface SettleOptions {
+  /** max ms to wait for network idle (default 2000) */
+  networkIdleMs?: number;
+  /** max ms to wait for fonts (default 3000) */
+  fontsMs?: number;
+  /** freeze CSS animations/transitions so mid-flight tweens don't jitter (default true) */
+  freezeAnimations?: boolean;
+  /** extra fixed wait after everything else (default 0) */
+  extraWaitMs?: number;
+}
+
+/**
+ * Wait until the page is visually stable enough to screenshot deterministically:
+ * network idle, fonts loaded, two consecutive animation frames, and (optionally)
+ * CSS animations/transitions frozen. Each stage has its own timeout so a slow
+ * third-party script can't stall capture.
+ */
+export async function settlePage(page: Page, options: SettleOptions = {}): Promise<void> {
+  const { networkIdleMs = 2000, fontsMs = 3000, freezeCss = true, extraWaitMs = 0 } = {
+    networkIdleMs: options.networkIdleMs,
+    fontsMs: options.fontsMs,
+    freezeCss: options.freezeAnimations ?? true,
+    extraWaitMs: options.extraWaitMs,
+  };
+
+  // 1. network idle (lazy images, XHRs that swap content). Degrade gracefully:
+  // a page with a persistent connection (analytics beacon, websocket) just
+  // times out and we capture anyway.
+  await page.waitForLoadState("networkidle", { timeout: networkIdleMs }).catch(() => {});
+
+  // 2. fonts — webfonts loading late is a classic text-jitter source
+  await page.evaluate(
+    (ms) => Promise.race([document.fonts.ready, new Promise((r) => setTimeout(r, ms))]),
+    fontsMs,
+  );
+
+  // 3. two consecutive animation frames: lets any in-progress paint finish
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+      }),
+  );
+
+  // 4. freeze CSS animations/transitions so a mid-flight tween doesn't produce
+  //    a different frame on every capture. Injected as a <style> so it overrides
+  //    page styles without touching inline style attributes.
+  if (freezeCss) {
+    await page.addStyleTag({
+      content: `*,*::before,*::after{animation-duration:0s !important;animation-delay:0s !important;transition-duration:0s !important;transition-delay:0s !important;caret-color:transparent !important;}`,
+    }).catch(() => {});
+  }
+
+  if (extraWaitMs > 0) await page.waitForTimeout(extraWaitMs);
+}
+
 // ─── Console / network diagnostics ────────────────────────────────────────
 // A visual change caused by a thrown exception or a 404 stylesheet is
 // otherwise unexplainable from pixels alone. Attach BEFORE navigation so
